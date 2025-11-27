@@ -1,0 +1,36 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    cron \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY atis_collector.py .
+COPY runway_parser.py .
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Create entrypoint script that sets up cron with environment variables
+RUN echo '#!/bin/sh\n\
+# Export environment variables to a file for cron\n\
+printenv | grep -E "^(DB_|PATH)" > /etc/environment\n\
+# Setup cron job with environment that outputs to both log file and stdout\n\
+echo "*/5 * * * * . /etc/environment; cd /app && /usr/local/bin/python /app/atis_collector.py 2>&1 | tee -a /app/logs/collector.log" | crontab -\n\
+# Run once on startup\n\
+python /app/atis_collector.py\n\
+# Tail log file in background to show cron output in docker logs\n\
+tail -F /app/logs/collector.log &\n\
+# Start cron daemon in foreground\n\
+cron -f' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]
