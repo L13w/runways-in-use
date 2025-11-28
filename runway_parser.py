@@ -37,7 +37,7 @@ class RunwayConfiguration:
     configuration_name: Optional[str]
     raw_text: str
     confidence_score: float
-
+    
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
         d = asdict(self)
@@ -128,6 +128,8 @@ class RunwayParser:
             re.compile(r'(?:SIMUL\s+)?(?:INSTR\s+)?(?:DEPARTURES?|DEPS?)\s+IN\s+PROG(?:RESS)?\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # "FOR BOTH RWYS X AND Y" patterns in departure context
             re.compile(r'(?:FOR\s+)?BOTH\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)\s+AND\s+(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?)', re.IGNORECASE),
+            # "DEPS EXP RWYS 22L 28R" - departures expect runways (KORD pattern)
+            re.compile(r'(?:DEPS?)\s+(?:EXP(?:ECT)?)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s+|\s*,\s*)([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
         ]
 
         self.combined_patterns = [
@@ -156,8 +158,12 @@ class RunwayParser:
 
             # Simultaneous approaches
             re.compile(r'(?:SIMUL|SIMULTANEOUS)\s+(?:APCHS|APPROACHES)\s+(?:IN\s+USE\s*,?\s*)?(?:TO\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
-        ]
 
+            # "17L, 17R & 13 IN USE" - runway numbers without RWY prefix, comma/ampersand separated
+            # Handles KOKC-style pattern where runways listed directly without RWY keyword
+            re.compile(r'([0-9]{1,2}[LCR]?)(?:\s*[,&]\s*|\s+(?:AND|OR)\s+)([0-9]{1,2}[LCR]?)(?:(?:\s*[,&]\s*|\s+(?:AND|OR)\s+)([0-9]{1,2}[LCR]?))*\s+IN\s+USE', re.IGNORECASE),
+        ]
+        
         # Airport-specific configuration names
         self.airport_configs = {
             'KSEA': {
@@ -184,7 +190,7 @@ class RunwayParser:
             'KJFK', 'KBOS', 'KORD',  # These sometimes publish arrival-only
             'KGSO', 'KLIT', 'KMCI'  # Verified from human reviews
         }
-
+    
     def parse(self, airport_code: str, atis_text: str, info_letter: Optional[str] = None) -> RunwayConfiguration:
         """Main parsing method"""
         timestamp = datetime.utcnow()
@@ -233,10 +239,10 @@ class RunwayParser:
 
         # Determine traffic flow
         flow = self.determine_traffic_flow(arriving, departing)
-
+        
         # Get configuration name if available
         config_name = self.get_configuration_name(airport_code, arriving, departing)
-
+        
         # Calculate confidence score
         confidence = self.calculate_confidence(arriving, departing, cleaned_text)
 
@@ -268,9 +274,59 @@ class RunwayParser:
             raw_text=atis_text,
             confidence_score=confidence
         )
+    
+    def extract_relevant_section(self, text: str) -> str:
+        """Extract only the relevant section of ATIS text for runway parsing.
+
+        ATIS structure typically:
+        1. Header (airport, ATIS letter, time, weather) - IGNORE
+        2. Altimeter reading: "A3018 (THREE ZERO ONE EIGHT)" - START MARKER
+        3. Runway information - EXTRACT THIS
+        4. NOTAMs/Notices: "NOTICE TO AIRMEN", "NOTAM", "READBACK" - END MARKER
+        5. Closing - IGNORE
+
+        Returns the section between altimeter and end markers, or full text if markers not found.
+        """
+        text_upper = text.upper()
+
+        # Find start marker: Altimeter reading pattern "A####" followed by spoken form
+        # Examples: "A3018 (THREE ZERO ONE EIGHT)", "A2997 (TWO NINER NINER SEVEN)"
+        start_match = re.search(r'A\d{4}\s*\([A-Z\s]+\)', text_upper)
+
+        # Find end markers - these typically come AFTER runway information
+        end_patterns = [
+            r'\bNOTICE\s+TO\s+AIR\w*\b',  # "NOTICE TO AIRMEN", "NOTICE TO AIR MISSIONS"
+            r'\bNOTAMS?\b\.{0,3}',  # "NOTAM", "NOTAMS", "NOTAMS..."
+            r'\bREADBACK\s+ALL\s+RWY\b',  # "READBACK ALL RWY HOLD SHORT"
+            r'\bADVISE\s+ON\s+INITIAL\b',  # "ADVISE ON INITIAL CONTACT"
+            r'\bPILOTS?\s+(?:ARE\s+)?(?:ADVISED|CAUTIONED)\b',  # "PILOTS ARE ADVISED"
+            r'\bBIRD\s+ACT(?:IVITY|VTY)\b',  # "BIRD ACTIVITY" - often starts NOTAM section
+            r'\.{3}ADVS\s+YOU\s+HAVE\b',  # "...ADVS YOU HAVE INFO X" - closing
+        ]
+
+        end_pos = len(text)
+        for pattern in end_patterns:
+            match = re.search(pattern, text_upper)
+            if match and match.start() < end_pos:
+                # Only use this end marker if it comes AFTER the start marker
+                if start_match is None or match.start() > start_match.end():
+                    end_pos = match.start()
+
+        # Extract the relevant section
+        if start_match:
+            start_pos = start_match.end()
+            relevant_section = text[start_pos:end_pos]
+            logger.debug(f"Extracted relevant section: chars {start_pos}-{end_pos} of {len(text)}")
+            return relevant_section
+        else:
+            # No altimeter found - return up to end marker
+            return text[:end_pos]
 
     def clean_text(self, text: str) -> str:
         """Clean ATIS text for better pattern matching"""
+        # First, extract only the relevant section (between altimeter and NOTAMs)
+        text = self.extract_relevant_section(text)
+
         # Remove extra whitespace
         text = ' '.join(text.split())
 
@@ -283,6 +339,7 @@ class RunwayParser:
             r'RWY?\s+[0-9]{1,2}[LCR]?\s+(?:DEPARTURES?|ARRIVALS?)\s+(?:ARE\s+)?(?:ADVISED|CAUTIONED|WARNED)[^.]*?\.?',
             # "LOW CLOSE IN OBSTACLES FOR RWY 30 DEPARTURES" - NOTAM about obstacles/hazards
             r'(?:OBSTACLES?|HAZARDS?)[^.]{0,50}?FOR\s+RWY?\s+[0-9]{1,2}[LCR]?\s+(?:DEPARTURES?|ARRIVALS?)[^.]*?\.?',
+            # Too aggressive - removed: r'(?:CAUTION|WARNING|NOTICE|ADVISE)[:\s]+.*?RWY?\s+[0-9]{1,2}[LCR]?',
             # "RWY 16L AVOID TURNING LEFT" - runway followed by avoid/caution within same phrase
             r'RWY?\s+[0-9]{1,2}[LCR]?\s+[^.]{0,50}?(?:AVOID|WARNING)[^.]*?\.?',
         ]
@@ -523,7 +580,7 @@ class RunwayParser:
                             runways.add(self.normalize_runway(rwy))
 
         return runways
-
+    
     def extract_combined_runways(self, text: str) -> Set[str]:
         """Extract runways when arrival/departure not specified"""
         runways = set()
@@ -542,7 +599,7 @@ class RunwayParser:
                             runways.add(self.normalize_runway(rwy))
 
         return runways
-
+    
     def normalize_runway(self, runway: str) -> str:
         """Normalize runway format (preserve original format from ATIS)"""
         # Extract number and suffix - preserve single vs double digit as it appears in ATIS
@@ -552,7 +609,7 @@ class RunwayParser:
             suffix = match.group(2) or ''
             return f"{number}{suffix}"
         return runway
-
+    
     def determine_traffic_flow(self, arriving: Set[str], departing: Set[str]) -> TrafficFlow:
         """Determine overall traffic flow direction"""
         all_runways = arriving.union(departing)
@@ -575,10 +632,10 @@ class RunwayParser:
 
         if not headings:
             return TrafficFlow.UNKNOWN
-
+        
         # Calculate average heading
         avg_heading = sum(headings) / len(headings)
-
+        
         # Determine flow direction based on heading
         if 337.5 <= avg_heading or avg_heading < 22.5:
             return TrafficFlow.NORTH
@@ -596,23 +653,23 @@ class RunwayParser:
             return TrafficFlow.WEST
         elif 292.5 <= avg_heading < 337.5:
             return TrafficFlow.NORTHWEST
-
+        
         return TrafficFlow.UNKNOWN
-
+    
     def get_configuration_name(self, airport_code: str, arriving: Set[str], departing: Set[str]) -> Optional[str]:
         """Get airport-specific configuration name"""
         if airport_code not in self.airport_configs:
             return None
-
+        
         configs = self.airport_configs[airport_code]
         all_runways = arriving.union(departing)
-
+        
         for config_name, config_runways in configs.items():
             if any(rwy in config_runways for rwy in all_runways):
                 return f"{config_name.capitalize()} Flow"
-
+        
         return None
-
+    
     def calculate_confidence(self, arriving: Set[str], departing: Set[str], text: str) -> float:
         """Calculate confidence score for extraction (recalibrated based on human review data)"""
         text_upper = text.upper()
@@ -745,14 +802,14 @@ class RunwayParser:
 # Example usage
 if __name__ == "__main__":
     parser = RunwayParser()
-
+    
     # Test with sample ATIS text
     sample_atis = """
-    SEA ATIS INFO C 0053Z. 11010KT 10SM FEW015 BKN250 11/07 A3012
-    RMK AO2 SLP202 T01110072. ILS APPROACHES IN USE. LANDING RUNWAY 16L 16C AND 16R.
+    SEA ATIS INFO C 0053Z. 11010KT 10SM FEW015 BKN250 11/07 A3012 
+    RMK AO2 SLP202 T01110072. ILS APPROACHES IN USE. LANDING RUNWAY 16L 16C AND 16R. 
     DEPARTING RUNWAY 16L 16C AND 16R. NOTAMS: RUNWAY 16L CLSD BTN 0600 AND 1400Z DAILY.
     """
-
+    
     result = parser.parse("KSEA", sample_atis, "C")
     print(f"Airport: {result.airport_code}")
     print(f"Arriving: {result.arriving_runways}")
