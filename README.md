@@ -156,8 +156,8 @@ The system now runs continuously:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/L13w/runways-in-use-public.git
-cd runways-in-use-public
+git clone https://github.com/L13w/runways-in-use.git
+cd runways-in-use
 ```
 
 2. Copy the environment template:

@@ -65,6 +65,35 @@
             font-size: 14px;
         }
 
+        .warning-banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid #f59e0b;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #fbbf24;
+            font-weight: 500;
+        }
+
+        .footer {
+            margin-top: 48px;
+            padding: 24px 0;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--accent-blue);
+        }
+
         .system-status {
             display: flex;
             align-items: center;
@@ -510,6 +539,9 @@
                     <div>
                         <h1>Runways in Use</h1>
                         <p class="subtitle">Live airport runway configurations from D-ATIS</p>
+                        <div class="warning-banner">
+                            IMPORTANT: This site is experimental. Data is not expected or guaranteed to be accurate.
+                        </div>
                     </div>
                     <div class="system-status">
                         <span class="status-dot"></span>
@@ -749,6 +781,11 @@
                     <div class="empty-state-icon">🔍</div>
                     <p>No airports found matching "{{ searchQuery }}"</p>
                 </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <p>&copy; 2024 <a href="https://github.com/L13w">Inertial Navigation LLC</a>. Licensed under <a href="https://polyformproject.org/licenses/noncommercial/1.0.0/" target="_blank">PolyForm Noncommercial 1.0.0</a>.</p>
             </div>
         </div>
     </div>
