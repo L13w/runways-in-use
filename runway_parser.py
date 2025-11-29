@@ -63,8 +63,9 @@ class RunwayParser:
             re.compile(r'(?:ILS|RNAV|VISUAL|VOR|GPS|LOC)\s+(?:[YZ]\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s*,\s*(?:SIMUL|SIMULTANEOUS)?\s*,?\s*(?:ILS|RNAV|VISUAL|VOR|GPS|LOC)\s*,?\s*(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
             # "ILS, RWY 28L, AND, RWY 28R" - comma-separated with AND, multiple RWY keywords
             re.compile(r'(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)\s*,\s*(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s*,\s*(?:AND\s*,\s*)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
-            # Abbreviated format: "ILS 22L, DEP 22R" - capture ILS/RNAV runway before DEP keyword
-            re.compile(r'(?:ILS|RNAV|VOR|GPS|LOC)\s+([0-9]{1,2}[LCR]?)(?=\s*,\s*DEP)', re.IGNORECASE),
+            # Abbreviated format: "ILS 22L, DEP 22R" or "ILS RWY 27, DEP 33L" - capture ILS/RNAV runway before DEP keyword
+            # RWY keyword is optional, handles both "ILS 27" and "ILS RWY 27"
+            re.compile(r'(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?)(?=\s*[,\.]\s*DEP)', re.IGNORECASE),
             # SIMUL VISUAL APCH TO RWYS, 36L, 35C, 35R, 31R - captures comma-separated runway lists
             re.compile(r'(?:SIMUL|SIMULTANEOUS)?\s*(?:VISUAL|ILS|RNAV)?\s*(?:APCH|APPROACH|APCHS|APPROACHES)\s+(?:TO\s+)?(?:RWYS?|RYS|RY)\s*,\s*([0-9]{1,2}[LCR]?)(?:\s*,\s*([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # Pattern for abbreviated approaches: "ILS, AND VA, RWYS 30 AND 28R" (VA = Visual Approach)
@@ -79,6 +80,8 @@ class RunwayParser:
             # Make RWY keyword optional for comma-separated runways (like departure patterns)
             # Added RYS to handle common ATIS typo (e.g., "RYS 16R AND 16L")
             re.compile(r'(?:EXPECT\s+)?(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)\s+(?:OR\s+)?(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)?\s*(?:APCH|APPROACH|APCHS|APPROACHES)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "EXPECT VISUAL APPROACH TO RWY X, RWY Y" - KCVG pattern with "TO" before RWY
+            re.compile(r'(?:EXPECT\s+)?(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)\s+(?:OR\s+)?(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)?\s*(?:APCH|APPROACH|APCHS|APPROACHES)\s+TO\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             re.compile(r'(?:APCH|APPROACH|APCHS|APPROACHES)\s+(?:IN\s+USE\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # "SIMULTANEOUS ARRIVAL AND, DEPARTURE OPERATIONS ARE IN USE, ON RY 22R AND RY 22L"
             # Extract runways from this pattern (used for both arrivals and departures)
@@ -188,7 +191,9 @@ class RunwayParser:
             'KADW', 'KALB', 'KRSW', 'KPVD', 'KOAK', 'KPDX', 'KDAL',
             'KCMH', 'KAUS', 'KFLL', 'KIND', 'KTPA', 'KTUL', 'KBWI',
             'KJFK', 'KBOS', 'KORD',  # These sometimes publish arrival-only
-            'KGSO', 'KLIT', 'KMCI'  # Verified from human reviews
+            'KGSO', 'KLIT', 'KMCI',  # Verified from human reviews
+            'KCHS', 'KMDW', 'KPHL', 'KPIT', 'KPBI', 'KIAH',  # Added from Nov 2024 human reviews
+            'KMIA', 'KSNA', 'KSLC'  # More arrival-only airports
         }
     
     def parse(self, airport_code: str, atis_text: str, info_letter: Optional[str] = None) -> RunwayConfiguration:
@@ -538,6 +543,20 @@ class RunwayParser:
     def extract_arriving_runways(self, text: str) -> Set[str]:
         """Extract arrival runway information"""
         runways = set()
+
+        # FIRST: Check for abbreviated format patterns that use lookahead for DEP keyword
+        # These patterns need to run on the ORIGINAL text before departure sections are removed
+        # Example: "ILS RWY 27, DEP 33L" - the lookahead (?=..DEP) needs DEP to be present
+        abbreviated_pattern = re.compile(
+            r'(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?)(?=\s*[,\.]\s*DEP)',
+            re.IGNORECASE
+        )
+        for match in abbreviated_pattern.finditer(text):
+            rwy = match.group(1)
+            if rwy and re.match(r'^[0-9]{1,2}[LCR]?$', rwy):
+                num_part = re.match(r'^([0-9]{1,2})', rwy)
+                if num_part and 1 <= int(num_part.group(1)) <= 36:
+                    runways.add(self.normalize_runway(rwy))
 
         # FIX: Remove departure-specific sections before extracting arrivals
         # to prevent "ARRIVALS RWY 3, RWY 8. DEPG RWY 8" from capturing 8 as arrival

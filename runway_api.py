@@ -1834,9 +1834,17 @@ async def get_pending_reviews(
         additional_where = " AND ".join(additional_filters) if additional_filters else "TRUE"
 
         # Use CTE to get most recent report per airport, THEN filter by confidence
-        # This ensures we get the latest report first, then check if it needs review
+        # IMPORTANT: Exclude airports that have ANY reviewed report in the last 2 hours
+        # This prevents the same airport from showing up repeatedly after being reviewed
         cursor.execute(f"""
-            WITH recent_reports AS (
+            WITH recently_reviewed_airports AS (
+                -- Airports with any reviewed report in the last 2 hours
+                SELECT DISTINCT airport_code
+                FROM error_reports
+                WHERE reviewed = TRUE
+                  AND reviewed_at > NOW() - INTERVAL '2 hours'
+            ),
+            recent_reports AS (
                 SELECT DISTINCT ON (airport_code)
                     id,
                     airport_code,
@@ -1853,6 +1861,7 @@ async def get_pending_reviews(
                     reported_by
                 FROM error_reports
                 WHERE reported_at > NOW() - INTERVAL '1 hour'
+                  AND airport_code NOT IN (SELECT airport_code FROM recently_reviewed_airports)
                 ORDER BY airport_code, reported_at DESC
             )
             SELECT
@@ -2274,15 +2283,22 @@ async def navigate_review(
 
 @app.get("/api/review/stats", response_model=ReviewStats)
 async def get_review_stats():
-    """Get review statistics for error reports (most recent per airport)"""
+    """Get review statistics for error reports (excludes recently reviewed airports)"""
 
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
 
-        # Get most recent report per airport, THEN filter by confidence
+        # Count pending: airports with low-confidence reports that haven't been reviewed in last 2 hours
+        # This matches the pending query logic exactly
         cursor.execute("""
-            WITH recent_reports AS (
+            WITH recently_reviewed_airports AS (
+                SELECT DISTINCT airport_code
+                FROM error_reports
+                WHERE reviewed = TRUE
+                  AND reviewed_at > NOW() - INTERVAL '2 hours'
+            ),
+            recent_reports AS (
                 SELECT DISTINCT ON (airport_code)
                     id,
                     airport_code,
@@ -2291,25 +2307,42 @@ async def get_review_stats():
                     reported_at,
                     confidence_score
                 FROM error_reports
+                WHERE reported_at > NOW() - INTERVAL '1 hour'
+                  AND airport_code NOT IN (SELECT airport_code FROM recently_reviewed_airports)
                 ORDER BY airport_code, reported_at DESC
             )
             SELECT
-                COUNT(*) FILTER (WHERE confidence_score < 1.0) as total,
-                COUNT(*) FILTER (WHERE confidence_score < 1.0 AND reviewed = FALSE) as unreviewed,
-                COUNT(*) FILTER (WHERE confidence_score < 1.0 AND reviewed = TRUE) as reviewed
+                COUNT(*) FILTER (WHERE confidence_score < 1.0) as pending
             FROM recent_reports
         """)
-        stats = cursor.fetchone()
+        pending = cursor.fetchone()['pending']
 
-        # Count by source (reported_by) - get most recent per airport first, then filter
+        # Count reviewed in the last 2 hours (how many airports you've handled)
         cursor.execute("""
-            WITH recent_reports AS (
+            SELECT COUNT(DISTINCT airport_code) as reviewed
+            FROM error_reports
+            WHERE reviewed = TRUE
+              AND reviewed_at > NOW() - INTERVAL '2 hours'
+        """)
+        reviewed = cursor.fetchone()['reviewed']
+
+        # Count by source (for the pending items only)
+        cursor.execute("""
+            WITH recently_reviewed_airports AS (
+                SELECT DISTINCT airport_code
+                FROM error_reports
+                WHERE reviewed = TRUE
+                  AND reviewed_at > NOW() - INTERVAL '2 hours'
+            ),
+            recent_reports AS (
                 SELECT DISTINCT ON (airport_code)
                     airport_code,
                     reported_by,
                     reported_at,
                     confidence_score
                 FROM error_reports
+                WHERE reported_at > NOW() - INTERVAL '1 hour'
+                  AND airport_code NOT IN (SELECT airport_code FROM recently_reviewed_airports)
                 ORDER BY airport_code, reported_at DESC
             )
             SELECT reported_by, COUNT(*) as count
@@ -2321,9 +2354,9 @@ async def get_review_stats():
         by_source = {row['reported_by']: row['count'] for row in cursor.fetchall()}
 
         return ReviewStats(
-            total_reports=stats['total'],
-            unreviewed_count=stats['unreviewed'],
-            reviewed_count=stats['reviewed'],
+            total_reports=pending + reviewed,
+            unreviewed_count=pending,
+            reviewed_count=reviewed,
             by_source=by_source
         )
 
