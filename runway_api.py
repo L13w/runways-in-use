@@ -2097,10 +2097,20 @@ async def submit_review(review_id: int, submission: ReviewSubmission):
             "correction_created": is_actual_correction
         }
 
-    except Exception as e:
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (validation errors, not found, etc.)
         conn.rollback()
-        logger.error(f"Failed to submit review: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit review: {str(e)}")
+        raise
+    except Exception as e:
+        import traceback
+        error_details = f"{type(e).__name__}: {str(e) or repr(e)}"
+        logger.error(f"Failed to submit review {review_id}: {error_details}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        try:
+            conn.rollback()
+        except Exception as rollback_err:
+            logger.error(f"Rollback also failed: {rollback_err}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit review: {error_details}")
     finally:
         conn.close()
 
