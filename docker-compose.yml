@@ -5,9 +5,9 @@ services:
     image: postgres:15-alpine
     container_name: runway_db
     environment:
-      POSTGRES_DB: ${DB_NAME:-runway-detection}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: runway-detection
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -26,9 +26,9 @@ services:
     container_name: runway_collector
     environment:
       DB_HOST: postgres
-      DB_NAME: ${DB_NAME:-runway-detection}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: runway_detection
+      DB_USER: postgres
+      DB_PASSWORD: postgres
       DB_PORT: 5432
     depends_on:
       postgres:
@@ -44,9 +44,9 @@ services:
     container_name: runway_api
     environment:
       DB_HOST: postgres
-      DB_NAME: ${DB_NAME:-runway-detection}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: runway-detection
+      DB_USER: postgres
+      DB_PASSWORD: postgres
       DB_PORT: 5432
     ports:
       - "8000:8000"
@@ -65,8 +65,8 @@ services:
     image: dpage/pgadmin4:latest
     container_name: runway_pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@runway.local}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_DEFAULT_EMAIL: admin@runway.local
+      PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
     depends_on:

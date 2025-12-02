@@ -16,7 +16,7 @@ import os
 from typing import Dict, List, Optional
 
 # Import runway parser
-from runway_parser import RunwayParser
+from runway_parser import RunwayParser, RunwayConfiguration
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +33,7 @@ DB_CONFIG = {
     'user': os.getenv('DB_USER', 'postgres'),
     'password': os.getenv('DB_PASSWORD', 'postgres'),
     'port': os.getenv('DB_PORT', '5432'),
-    'sslmode': 'require'
+    'sslmode': os.getenv('DB_SSLMODE', 'prefer')  # 'require' for production, 'prefer' for local
 }
 
 class ATISCollector:
@@ -74,11 +74,15 @@ class ATISCollector:
         """Store ATIS data in database"""
         cursor = self.conn.cursor()
         collected_at = datetime.utcnow()
-        
+
         new_records = 0
         changed_records = 0
         unchanged_records = 0
-        
+
+        # Track split ATIS pairs for merging after individual processing
+        # Key: airport_code, Value: {'arr': {...}, 'dep': {...}}
+        split_atis_pending = {}
+
         for airport in airports_data:
             try:
                 airport_code = airport.get('airport')
@@ -125,31 +129,57 @@ class ATISCollector:
 
                 atis_id = cursor.fetchone()[0]
 
-                # Parse and store runway configuration only if ATIS changed
-                if is_changed:
+                # Check if this is a split ATIS (ARR INFO or DEP INFO)
+                # We need to track these even if unchanged, for potential merging with changed partner
+                text_upper = datis_text.upper()
+                is_arr_info = 'ARR INFO' in text_upper or 'ARR ATIS' in text_upper
+                is_dep_info = 'DEP INFO' in text_upper or 'DEP ATIS' in text_upper
+                is_split_atis = is_arr_info or is_dep_info
+
+                # Parse and store runway configuration if ATIS changed OR if it's a split ATIS
+                # (we need to parse unchanged split ATIS to have both halves for merging)
+                if is_changed or is_split_atis:
                     try:
                         config = self.parser.parse(airport_code, datis_text, info_letter)
 
-                        cursor.execute("""
-                            INSERT INTO runway_configs
-                            (airport_code, atis_id, arriving_runways, departing_runways,
-                             traffic_flow, configuration_name, confidence_score)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (airport_code, atis_id) DO NOTHING
-                        """, (
-                            airport_code,
-                            atis_id,
-                            json.dumps(config.arriving_runways),
-                            json.dumps(config.departing_runways),
-                            config.traffic_flow,
-                            config.configuration_name,
-                            config.confidence_score
-                        ))
+                        if is_split_atis:
+                            # This is a split ATIS - collect for potential merging
+                            if airport_code not in split_atis_pending:
+                                split_atis_pending[airport_code] = {}
 
-                        # Validate configuration and create error report if issues found
-                        issues = self.parser.validate_configuration(config)
-                        if issues:
-                            self.create_error_report(cursor, airport_code, atis_id, config, issues)
+                            atis_type = 'arr' if is_arr_info else 'dep'
+                            split_atis_pending[airport_code][atis_type] = {
+                                'atis_id': atis_id,
+                                'config': config,
+                                'info_letter': info_letter,
+                                'is_changed': is_changed
+                            }
+                            logger.debug(f"Collected {atis_type.upper()} INFO for {airport_code} (changed={is_changed})")
+
+                        # Only store individual config if ATIS changed
+                        if is_changed:
+                            cursor.execute("""
+                                INSERT INTO runway_configs
+                                (airport_code, atis_id, arriving_runways, departing_runways,
+                                 traffic_flow, configuration_name, confidence_score)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (airport_code, atis_id) DO NOTHING
+                            """, (
+                                airport_code,
+                                atis_id,
+                                json.dumps(config.arriving_runways),
+                                json.dumps(config.departing_runways),
+                                config.traffic_flow,
+                                config.configuration_name,
+                                config.confidence_score
+                            ))
+
+                            # Validate configuration and create error report if issues found
+                            # BUT skip for split ATIS - these will be validated after merging
+                            if not is_split_atis:
+                                issues = self.parser.validate_configuration(config)
+                                if issues:
+                                    self.create_error_report(cursor, airport_code, atis_id, config, issues)
 
                     except Exception as parse_error:
                         logger.debug(f"Failed to parse runway config for {airport_code}: {parse_error}")
@@ -157,9 +187,142 @@ class ATISCollector:
             except Exception as e:
                 logger.error(f"Error storing ATIS for {airport_code}: {e}")
                 continue
-        
+
+        # Process split ATIS pairs - merge ARR and DEP into combined configs
+        merged_count = self._merge_split_atis_pairs(cursor, split_atis_pending)
+
         self.conn.commit()
-        logger.info(f"Stored ATIS data: {new_records} new, {changed_records} changed, {unchanged_records} unchanged")
+        if merged_count > 0:
+            logger.info(f"Stored ATIS data: {new_records} new, {changed_records} changed, {unchanged_records} unchanged, {merged_count} merged pairs")
+        else:
+            logger.info(f"Stored ATIS data: {new_records} new, {changed_records} changed, {unchanged_records} unchanged")
+
+    def _merge_split_atis_pairs(self, cursor, split_atis_pending: Dict) -> int:
+        """
+        Merge ARR INFO and DEP INFO broadcasts into a single runway_configs row.
+
+        For airports that publish separate arrival and departure ATIS broadcasts,
+        this combines them into a single configuration with:
+        - Arrivals from ARR INFO
+        - Departures from DEP INFO
+        - merged_from_pair = TRUE
+        - component_confidence tracking individual confidence scores
+
+        Args:
+            cursor: Database cursor
+            split_atis_pending: Dict of {airport_code: {'arr': {...}, 'dep': {...}}}
+
+        Returns:
+            Number of successfully merged pairs
+        """
+        merged_count = 0
+
+        for airport_code, atis_pair in split_atis_pending.items():
+            try:
+                # Only merge if we have BOTH arr and dep for this airport
+                if 'arr' not in atis_pair or 'dep' not in atis_pair:
+                    logger.debug(f"Incomplete split ATIS for {airport_code}: only have {list(atis_pair.keys())}")
+                    continue
+
+                arr_data = atis_pair['arr']
+                dep_data = atis_pair['dep']
+
+                # Only merge if at least one of the pair changed
+                if not arr_data.get('is_changed') and not dep_data.get('is_changed'):
+                    continue
+
+                arr_config = arr_data['config']
+                dep_config = dep_data['config']
+
+                # Merge: take arrivals from ARR INFO, departures from DEP INFO
+                merged_arriving = list(arr_config.arriving_runways)
+                merged_departing = list(dep_config.departing_runways)
+
+                # If ARR INFO also had departures or DEP INFO had arrivals, include them too
+                # (some airports include partial info in both)
+                for rwy in arr_config.departing_runways:
+                    if rwy not in merged_departing:
+                        merged_departing.append(rwy)
+                for rwy in dep_config.arriving_runways:
+                    if rwy not in merged_arriving:
+                        merged_arriving.append(rwy)
+
+                # Calculate merged confidence (average of both, boosted if both are high)
+                arr_conf = arr_config.confidence_score
+                dep_conf = dep_config.confidence_score
+                if arr_conf >= 0.9 and dep_conf >= 0.9:
+                    merged_confidence = 1.0  # Both high = full confidence
+                else:
+                    merged_confidence = (arr_conf + dep_conf) / 2
+
+                # Determine traffic flow from merged runways
+                merged_flow_enum = self.parser.determine_traffic_flow(set(merged_arriving), set(merged_departing))
+                merged_flow = merged_flow_enum.value if hasattr(merged_flow_enum, 'value') else str(merged_flow_enum)
+
+                # Create configuration name
+                config_name = f"Merged: ARR {arr_data['info_letter'] or '?'} + DEP {dep_data['info_letter'] or '?'}"
+
+                # Component confidence for tracking
+                component_confidence = {
+                    'arrivals': arr_conf,
+                    'departures': dep_conf,
+                    'arr_atis_id': arr_data['atis_id'],
+                    'dep_atis_id': dep_data['atis_id']
+                }
+
+                # Insert merged configuration
+                # Use the ARR INFO atis_id as the primary reference
+                cursor.execute("""
+                    INSERT INTO runway_configs
+                    (airport_code, atis_id, arriving_runways, departing_runways,
+                     traffic_flow, configuration_name, confidence_score,
+                     merged_from_pair, component_confidence)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s)
+                    ON CONFLICT (airport_code, atis_id) DO UPDATE SET
+                        arriving_runways = EXCLUDED.arriving_runways,
+                        departing_runways = EXCLUDED.departing_runways,
+                        traffic_flow = EXCLUDED.traffic_flow,
+                        configuration_name = EXCLUDED.configuration_name,
+                        confidence_score = EXCLUDED.confidence_score,
+                        merged_from_pair = TRUE,
+                        component_confidence = EXCLUDED.component_confidence
+                """, (
+                    airport_code,
+                    arr_data['atis_id'],  # Use ARR ATIS as primary
+                    json.dumps(merged_arriving),
+                    json.dumps(merged_departing),
+                    merged_flow,
+                    config_name,
+                    merged_confidence,
+                    json.dumps(component_confidence)
+                ))
+
+                merged_count += 1
+                logger.info(f"Merged split ATIS for {airport_code}: ARR={merged_arriving}, DEP={merged_departing} (conf={merged_confidence:.1%})")
+
+                # Validate the merged configuration and create error report if issues found
+                # Combine raw text from both ATIS for carry-forward pattern matching
+                combined_raw_text = f"{arr_config.raw_text}\n---\n{dep_config.raw_text}"
+                merged_config = RunwayConfiguration(
+                    airport_code=airport_code,
+                    timestamp=datetime.utcnow(),
+                    information_letter=arr_data['info_letter'],
+                    arriving_runways=merged_arriving,
+                    departing_runways=merged_departing,
+                    traffic_flow=merged_flow,
+                    configuration_name=config_name,
+                    raw_text=combined_raw_text,  # Include both ATIS for carry-forward matching
+                    confidence_score=merged_confidence
+                )
+                issues = self.parser.validate_configuration(merged_config)
+                if issues:
+                    self.create_error_report(cursor, airport_code, arr_data['atis_id'], merged_config, issues)
+
+            except Exception as e:
+                logger.warning(f"Failed to merge split ATIS for {airport_code}: {e}")
+                continue
+
+        return merged_count
 
     def try_carry_forward_review(self, cursor, airport_code: str,
                                   arriving_runways: List[str], departing_runways: List[str],

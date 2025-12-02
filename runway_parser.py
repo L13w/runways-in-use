@@ -68,6 +68,8 @@ class RunwayParser:
             re.compile(r'(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?)(?=\s*[,\.]\s*DEP)', re.IGNORECASE),
             # SIMUL VISUAL APCH TO RWYS, 36L, 35C, 35R, 31R - captures comma-separated runway lists
             re.compile(r'(?:SIMUL|SIMULTANEOUS)?\s*(?:VISUAL|ILS|RNAV)?\s*(?:APCH|APPROACH|APCHS|APPROACHES)\s+(?:TO\s+)?(?:RWYS?|RYS|RY)\s*,\s*([0-9]{1,2}[LCR]?)(?:\s*,\s*([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "EXPECT VISUAL APCH RWYS 36C 36L 36R" - space-separated runways after APCH RWYS (KCLT pattern)
+            re.compile(r'(?:EXPECT\s+)?(?:SIMUL|SIMULTANEOUS)?\s*(?:VISUAL|ILS|RNAV)?\s*(?:APCH|APPROACH|APCHS|APPROACHES)\s+(?:TO\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s+([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # Pattern for abbreviated approaches: "ILS, AND VA, RWYS 30 AND 28R" (VA = Visual Approach)
             re.compile(r'(?:ILS|VISUAL|RNAV|VOR|GPS|LOC|VA)\s*,\s*(?:AND\s+)?(?:ILS|VISUAL|RNAV|VOR|GPS|LOC|VA)?\s*,?\s*(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # Pattern for: "ILS, RYS 16R AND 16L, APCH IN USE" (runway info between approach type and APCH keyword)
@@ -99,9 +101,20 @@ class RunwayParser:
             re.compile(r'(?:RNAV|ILS|VISUAL)\s+(?:AND\s+)?(?:RNAV|ILS|VISUAL)?\s+(?:APCHS|APPROACHES)\s+IN\s+USE', re.IGNORECASE),
             # Shortened RNAV approach: "RNAV 27" or "RNAV Y 27" or "RNAV Z 27"
             re.compile(r'RNAV\s+(?:[YZ]\s+)?([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:RNAV\s+)?(?:[YZ]\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "ILS RY 34R RNAV Y RY 35 RNAV Z RY 34L" - multiple approach types with RY (KSLC pattern)
+            # Captures sequence of ILS/RNAV [Y/Z] RY XX separated by spaces
+            re.compile(r'(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:[YZ]\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s+(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:[YZ]\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
             # Named visual approaches: "FMS BRIDGE RY 28R AND TIPP TOE RY 28L APP IN USE"
             # Matches: [approach name] RY [runway] [AND [approach name] RY [runway]]* APP IN USE
             re.compile(r'(?:[A-Z]+(?:\s+[A-Z]+)*\s+)?RY\s+([0-9]{1,2}[LCR]?)(?:\s+AND\s+(?:[A-Z]+(?:\s+[A-Z]+)*\s+)?RY\s+([0-9]{1,2}[LCR]?))*\s+APP\s+IN\s+USE', re.IGNORECASE),
+            # "ILS RWY 23 IN USE" - simple ILS runway in use (KPVD pattern)
+            re.compile(r'(?:ILS|VISUAL|RNAV|VOR|GPS|LOC)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)\s+IN\s+USE', re.IGNORECASE),
+            # "LAND RY 31" - simple LAND keyword (KLGA pattern)
+            re.compile(r'LAND\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "EXPECT ILS RWY 23L, 23R" - ILS/approach type with RWY without APPROACH keyword (KRDU pattern)
+            re.compile(r'(?:EXPECT\s+)?(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*)([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "ILS RWY 35L AND 35R" - ILS with multiple runways using AND separator (KOKC pattern)
+            re.compile(r'(?:ILS|RNAV|VOR|GPS|LOC)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s+(?:AND|OR)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
         ]
 
         self.departure_patterns = [
@@ -110,6 +123,8 @@ class RunwayParser:
             re.compile(r'(?:SIMUL|SIMULTANEOUS)\s+(?:ARRIVAL\s+AND\s*,?\s*DEPARTURE\s+OPERATIONS|DEPENDENT)\s+(?:ARE\s+)?(?:IN\s+USE\s*)?,?\s*(?:ON\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s+(?:AND|OR)\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
             # "SIMUL DEPS IN USE, EXPECT RY 18L, RY 18C" - simultaneous departures with comma-separated runways
             re.compile(r'(?:SIMUL|SIMULTANEOUS)\s+(?:DEPS?|DEPARTURES?)\s+IN\s+USE\s*,?\s*(?:EXPECT\s+)?(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s*,\s*(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
+            # "SIMUL DEPS IN USE RY 18R 18C 18L" - space-separated runways (KMEM pattern)
+            re.compile(r'(?:SIMUL|SIMULTANEOUS)\s+(?:DEPS?|DEPARTURES?)\s+IN\s+USE\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:\s+([0-9]{1,2}[LCR]?))+', re.IGNORECASE),
             # NOTE: "LNDG/DEPG RWYS 4/8" moved to combined_patterns (line 125)
             # "DEPG RWYS RWY 10L AND 10R" - double RWY keyword (KFLL case)
             # Negative lookbehind prevents matching when part of "LANDING AND DEPARTING"
@@ -127,6 +142,8 @@ class RunwayParser:
             re.compile(r'(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)([0-9]{1,2}[LCR]?))*\s+(?:FOR\s+)?(?:DEPG|DEP|DEPARTURE|TAKEOFF)', re.IGNORECASE),
             # Shortened departure: "DEP 33L" or "DEPG 16R" (without RWY keyword)
             re.compile(r'(?:DEPG|DEP)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:DEPG|DEP\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
+            # "DEPART RY 31" - DEPART keyword with RY (KLGA pattern)
+            re.compile(r'DEPART\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # "IN PROG" (in progress) patterns: "SIMUL INSTR DEPARTURES IN PROG RWYS 24 AND 25"
             re.compile(r'(?:SIMUL\s+)?(?:INSTR\s+)?(?:DEPARTURES?|DEPS?)\s+IN\s+PROG(?:RESS)?\s+(?:RWYS?|RYS|RY)\s+([0-9]{1,2}[LCR]?)(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)(?:(?:RWYS?|RYS|RY)\s+)?([0-9]{1,2}[LCR]?))*', re.IGNORECASE),
             # "FOR BOTH RWYS X AND Y" patterns in departure context
@@ -193,7 +210,9 @@ class RunwayParser:
             'KJFK', 'KBOS', 'KORD',  # These sometimes publish arrival-only
             'KGSO', 'KLIT', 'KMCI',  # Verified from human reviews
             'KCHS', 'KMDW', 'KPHL', 'KPIT', 'KPBI', 'KIAH',  # Added from Nov 2024 human reviews
-            'KMIA', 'KSNA', 'KSLC'  # More arrival-only airports
+            'KHOU', 'KRDU',  # Ground assigns departure runways
+            'KMIA', 'KSNA', 'KSLC',  # More arrival-only airports
+            'KOKC', 'KSDF', 'KSMF'  # Added Dec 2024 - verified from ATIS patterns
         }
     
     def parse(self, airport_code: str, atis_text: str, info_letter: Optional[str] = None) -> RunwayConfiguration:
@@ -203,6 +222,10 @@ class RunwayParser:
         # Clean and prepare text
         cleaned_text = self.clean_text(atis_text)
         text_upper = cleaned_text.upper()
+
+        # Use original ATIS text for header detection (ARR INFO/DEP INFO)
+        # because clean_text strips the header portion
+        original_upper = atis_text.upper()
 
         # Check for explicit combined operation patterns (these override specific patterns)
         has_landing_and_departing = 'LANDING AND DEPARTING' in text_upper or 'LNDG AND DEPG' in text_upper or 'LNDG/DEPG' in text_upper
@@ -222,14 +245,26 @@ class RunwayParser:
                 departing = combined
 
         # Split ATIS handling: Many airports publish separate ARR INFO and DEP INFO
-        is_split_arr = 'ARR INFO' in text_upper
-        is_split_dep = 'DEP INFO' in text_upper
+        # Use original_upper (not cleaned text) because clean_text strips the header
+        is_split_arr = 'ARR INFO' in original_upper or 'ARR ATIS' in original_upper
+        is_split_dep = 'DEP INFO' in original_upper or 'DEP ATIS' in original_upper
 
-        # For ARR INFO: if approach patterns didn't find anything, try combined patterns
-        if is_split_arr and not arriving:
-            combined = self.extract_combined_runways(cleaned_text)
-            if combined:
-                arriving = combined
+        # For ARR INFO: clear any departures that may have been extracted erroneously
+        # ARR INFO only contains arrival information - departures come from separate DEP INFO
+        if is_split_arr:
+            # If approach patterns didn't find arrivals, try combined patterns
+            if not arriving:
+                combined = self.extract_combined_runways(cleaned_text)
+                if combined:
+                    arriving = combined
+            # Always clear departures for ARR INFO - they come from separate broadcast
+            departing = set()
+
+        # For DEP INFO: clear any arrivals that may have been extracted erroneously
+        # DEP INFO only contains departure information - arrivals come from separate ARR INFO
+        if is_split_dep:
+            # Always clear arrivals for DEP INFO - they come from separate broadcast
+            arriving = set()
 
         # FIX BUG #2 (KADW): Don't use combined patterns to fill departures if arrivals were explicitly found
         # Only use combined patterns when BOTH are missing (true ambiguity)
@@ -252,13 +287,14 @@ class RunwayParser:
         confidence = self.calculate_confidence(arriving, departing, cleaned_text)
 
         # Split ATIS confidence boost: Valid split ATIS should have 100% confidence
-        is_split_atis = ('DEP INFO' in text_upper or 'ARR INFO' in text_upper)
+        # Use original_upper which still contains the header
+        is_split_atis = is_split_arr or is_split_dep
         if is_split_atis:
             # ARR INFO with arrivals only is valid (departures published separately)
-            if 'ARR INFO' in text_upper and arriving and not departing:
+            if is_split_arr and arriving and not departing:
                 confidence = 1.0
             # DEP INFO with departures only is valid (arrivals published separately)
-            elif 'DEP INFO' in text_upper and departing and not arriving:
+            elif is_split_dep and departing and not arriving:
                 confidence = 1.0
             # Both present means they were paired - also 100% confidence
             elif arriving and departing:

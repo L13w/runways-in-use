@@ -1,383 +1,436 @@
 # Runways in Use
 
-Real-time airport runway configuration tracker for US airports, parsing D-ATIS (Digital Automatic Terminal Information Service) broadcasts to determine which runways are active for arrivals and departures.
+A real-time system that parses D-ATIS data to determine active runway configurations at US airports, filling a critical gap in aviation data APIs.
 
-**Created by [Llew Roberts](https://github.com/L13w)** with significant assistance from Claude Code.
+## 🎯 Problem Statement
 
-![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
-![Python](https://img.shields.io/badge/python-3.11-green)
-![Docker](https://img.shields.io/badge/docker-ready-blue)
+While weather data is readily available via API, runway direction information (which runways are active for arrivals/departures) is not available through any existing API. This system solves that by:
+- Collecting D-ATIS data every 5 minutes from all major US airports
+- Parsing runway information using pattern matching
+- Providing a simple REST API and web dashboard for runway configuration queries
 
----
+## 🚀 Deployment Options
 
-## The Story
+### Option 1: Azure Deployment (Recommended for Production)
 
-### TL;DR (30 seconds)
+Deploy the complete system to Azure with automatic data collection:
 
-Pilots and aviation enthusiasts often want to know which runways an airport is using, but this information isn't easily available through APIs. This project parses the free D-ATIS text broadcasts from US airports every 5 minutes and extracts the active runway configurations using regex pattern matching.
+**📘 [Follow the Quick Deployment Guide](QUICK_DEPLOY.md)**
 
-### The Medium Version (2 minutes)
+What gets deployed:
+- ✅ API + Dashboard (publicly accessible)
+- ✅ Data collector (runs automatically every 5 minutes)
+- ✅ PostgreSQL database
+- ✅ Automatic CI/CD via GitHub Actions
 
-Aviation weather and information services provide rich data about airports, but one critical piece of information has always been missing from public APIs: **which runways are currently in use**.
+Cost: ~$40-50/month
 
-ATIS (Automatic Terminal Information Service) broadcasts contain this information, but it's buried in free-form text like:
+### Option 2: Local Development
 
-```
-"SEATTLE-TACOMA INTL ATIS INFO C 1853Z. RUNWAY 16L APPROACH IN USE.
-DEPARTING RUNWAY 16L. NOTICE TO AIR MISSIONS... "
-```
+## 🚀 Quick Start (Local Development)
 
-This project was born from a simple question: *"What runway is SEA using right now?"*
+### Using Docker Compose (Recommended)
 
-The solution involves:
-1. **Data Collection**: Fetching D-ATIS data every 5 minutes from a public API
-2. **Text Parsing**: Using 20+ regex patterns to extract runway information from varied ATIS phraseology
-3. **Confidence Scoring**: Rating parse quality since ATIS formats vary wildly between airports
-4. **Human Review**: A built-in correction system to improve accuracy over time
-
-The result is a real-time dashboard showing runway configurations across 100+ US airports, complete with traffic flow direction (North/South/East/West) and historical data.
-
-### The Full Story (5+ minutes)
-
-#### The Problem
-
-If you're a pilot, flight simulator enthusiast, or just someone who likes watching FlightRadar24, you've probably wondered: "Why is that plane landing from the north today when it usually comes from the south?"
-
-The answer lies in runway configurations. Airports change which runways they use based on wind, traffic, noise abatement procedures, and other factors. This information is broadcast via ATIS - a continuous radio broadcast that pilots listen to before approaching an airport.
-
-In the digital age, D-ATIS (Digital ATIS) made this information available as text through various services. But here's the catch: while you can get the raw ATIS text, no public API actually parses out the runway information. You'd have to read through paragraphs of weather data, NOTAMs, and other information to find a single line like "LANDING RUNWAY 28L."
-
-#### The Journey
-
-**Phase 1: Discovery**
-
-The project started by exploring the [clowd.io D-ATIS API](https://datis.clowd.io/api/all), which provides free access to D-ATIS broadcasts for all US airports. The data was there - we just needed to extract the runway information.
-
-**Phase 2: Pattern Recognition**
-
-ATIS broadcasts don't follow a strict format. Different airports and different controllers phrase things differently:
-
-- "RUNWAY 16L APPROACH IN USE"
-- "LANDING AND DEPARTING RUNWAY 28L"
-- "ARRIVALS RUNWAY 16C, DEPARTURES RUNWAY 16R"
-- "EXPECT ILS RUNWAY 28L APPROACH"
-- "RUNWAYS 16L 16C 16R IN USE"
-
-We built a regex-based parser with 20+ patterns to handle these variations. Each pattern was crafted from real ATIS samples, and the parser assigns confidence scores based on how clearly it could identify the runways.
-
-**Phase 3: The Split ATIS Problem**
-
-Major airports like Denver (KDEN) and Cleveland (KCLE) use "split ATIS" - separate broadcasts for arrivals (ARR INFO) and departures (DEP INFO). This required special handling to pair the two broadcasts and merge their runway information.
-
-**Phase 4: Human-in-the-Loop**
-
-No regex parser is perfect. We added a human review system where:
-- The system automatically flags low-confidence parses
-- Users can report errors from the dashboard
-- A review interface lets humans correct mistakes
-- These corrections feed back to improve the system
-
-**Phase 5: Deployment**
-
-The system now runs continuously:
-- PostgreSQL database for storing ATIS history and runway configurations
-- Collector service running every 5 minutes via cron
-- FastAPI server providing the REST API and dashboard
-- All containerized with Docker for easy deployment
-
-#### Technical Challenges Solved
-
-1. **Runway Naming Conventions**: Runways are named by magnetic heading (e.g., Runway 16 faces 160 degrees). Parallel runways get L/C/R suffixes. The parser handles all variations.
-
-2. **Traffic Flow Detection**: By analyzing runway headings, the system determines if the airport is in North Flow, South Flow, etc.
-
-3. **Change Detection**: Using MD5 hashing to only store data when ATIS actually changes, preventing database bloat.
-
-4. **Reciprocal Runway Detection**: The system warns when parsed data contains reciprocal runways (e.g., 16 and 34), which would be physically impossible to use simultaneously.
-
----
-
-## Screenshots
-
-<!-- TODO: Add screenshots of the dashboard -->
-*Dashboard showing real-time runway configurations*
-
-<!-- TODO: Add screenshot of ATIS detail view -->
-*Detailed view with ATIS text and parsed runways*
-
-<!-- TODO: Add screenshot of review interface -->
-*Human review interface for corrections*
-
----
-
-## Architecture
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   D-ATIS API    │────▶│    Collector     │────▶│   PostgreSQL    │
-│  (clowd.io)     │     │  (every 5 min)   │     │    Database     │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                          │
-                               ┌──────────────────────────┘
-                               │
-                               ▼
-                        ┌─────────────────┐
-                        │   FastAPI App   │
-                        │   (runway_api)  │
-                        └────────┬────────┘
-                                 │
-                    ┌────────────┼────────────┐
-                    │            │            │
-                    ▼            ▼            ▼
-              ┌─────────┐  ┌─────────┐  ┌─────────┐
-              │Dashboard│  │   API   │  │ Review  │
-              │  (Vue)  │  │Endpoints│  │Interface│
-              └─────────┘  └─────────┘  └─────────┘
-```
-
-### Components
-
-- **Collector** (`atis_collector.py`): Fetches D-ATIS data every 5 minutes, stores in database
-- **Parser** (`runway_parser.py`): Extracts runway information using regex patterns
-- **API** (`runway_api.py`): FastAPI application providing REST endpoints
-- **Dashboard** (`dashboard.html`): Vue.js 3 single-page application
-- **Database**: PostgreSQL with change detection triggers
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Docker and Docker Compose
-- Git
-
-### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/L13w/runways-in-use.git
-cd runways-in-use
-```
+# Clone the repository
+git clone <your-repo-url>
+cd runway-detection
 
-2. Copy the environment template:
-```bash
-cp .env.example .env
-```
-
-3. (Optional) Edit `.env` to change default passwords
-
-4. Start the services:
-```bash
+# Start all services
 docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Access the API
+curl http://localhost:8000/api/runway/KSEA
 ```
 
-5. Access the dashboard at http://localhost:8000
+### Manual Setup
 
-### First Run
-
-On first startup:
-- PostgreSQL will initialize with the database schema
-- The collector will fetch initial ATIS data
-- The dashboard will show airports as they're populated
-
-Data collection runs every 5 minutes automatically.
-
----
-
-## API Reference
-
-Base URL: `http://localhost:8000/api/v1`
-
-### Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/airports` | GET | List all monitored airports |
-| `/runway/{code}` | GET | Get current runway config for an airport |
-| `/runway/{code}/history` | GET | Get runway change history |
-| `/runway/{code}/reports` | GET | Get recent ATIS reports with full text |
-| `/runways/all` | GET | Get all airports' current configurations |
-| `/status` | GET | System health and statistics |
-| `/report-error/{code}` | POST | Report a parsing error |
-
-### Example Response
-
-```json
-{
-  "airport": "KSEA",
-  "timestamp": "2024-01-15T18:53:00",
-  "information_letter": "C",
-  "arriving_runways": ["16L", "16C"],
-  "departing_runways": ["16L", "16R"],
-  "traffic_flow": "SOUTH",
-  "configuration_name": "South Flow",
-  "confidence": 0.95,
-  "last_updated": "2024-01-15T18:50:00"
-}
-```
-
----
-
-## Parser Details
-
-### How Runway Parsing Works
-
-The parser uses multiple regex patterns to extract runway information:
-
-**Arrival Patterns:**
-```
-RUNWAY 16L APPROACH
-LANDING RUNWAY 34R
-EXPECT ILS RUNWAY 28L APPROACH
-ARRIVALS RUNWAY 16C
-```
-
-**Departure Patterns:**
-```
-DEPARTING RUNWAY 34R
-DEPARTURE RUNWAY 16L
-TAKEOFF RUNWAY 28R
-```
-
-**Combined Patterns:**
-```
-LANDING AND DEPARTING RUNWAY 16C
-RUNWAYS 28L 28R IN USE
-```
-
-### Confidence Scoring
-
-Each parse gets a confidence score (0.0 - 1.0):
-
-- **1.0 (100%)**: Clear, unambiguous patterns matched
-- **0.5 - 0.9**: Some ambiguity or partial matches
-- **< 0.5**: Multiple interpretations possible
-- **0.0**: No patterns matched
-
-### Traffic Flow
-
-The system determines traffic flow direction from runway headings:
-
-| Flow | Runway Range | Example |
-|------|--------------|---------|
-| NORTH | 34, 35, 36, 01, 02 | Runway 34L = North Flow |
-| SOUTH | 16, 17, 18, 19, 20 | Runway 16C = South Flow |
-| EAST | 07, 08, 09, 10, 11 | Runway 09R = East Flow |
-| WEST | 25, 26, 27, 28, 29 | Runway 28L = West Flow |
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DB_HOST` | `localhost` | Database hostname |
-| `DB_NAME` | `runway-detection` | Database name |
-| `DB_USER` | `postgres` | Database username |
-| `DB_PASSWORD` | `postgres` | Database password |
-| `DB_PORT` | `5432` | Database port |
-| `DB_SSLMODE` | (none) | SSL mode for cloud databases |
-
----
-
-## Development
-
-### Local Development
-
-1. Create a virtual environment:
+1. **Install PostgreSQL**
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-.\venv\Scripts\activate  # Windows
+# Ubuntu/Debian
+sudo apt-get install postgresql postgresql-contrib
+
+# Create database
+sudo -u postgres psql
+CREATE DATABASE runway-detection;
+\q
 ```
 
-2. Install dependencies:
+2. **Setup Python Environment**
 ```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Start PostgreSQL (via Docker):
+3. **Initialize Database**
 ```bash
-docker-compose up -d postgres
+psql -U postgres -d runway-detection -f database_schema.sql
 ```
 
-4. Run the API:
+4. **Start Services**
 ```bash
-uvicorn runway_api:app --reload --port 8000
-```
-
-5. Run the collector manually:
-```bash
+# Terminal 1: Start collector (runs every 5 minutes)
 python atis_collector.py
+
+# Terminal 2: Start API server
+uvicorn runway_api:app --reload
 ```
 
-### Rebuilding Containers
+## 📡 API Endpoints
 
-After code changes:
+### Get Current Runway Configuration
 ```bash
-docker-compose up -d --build api
-docker-compose up -d --build collector
+GET /api/runway/{airport_code}
+
+# Example
+curl http://localhost:8000/api/runway/KSEA
+
+# Response
+{
+  "airport": "KSEA",
+  "timestamp": "2024-11-13T18:30:00Z",
+  "information_letter": "C",
+  "arriving_runways": ["16L", "16C", "16R"],
+  "departing_runways": ["16L", "16C", "16R"],
+  "traffic_flow": "SOUTH",
+  "configuration_name": "South Flow",
+  "confidence": 0.9,
+  "last_updated": "2024-11-13T18:33:00Z"
+}
 ```
 
+### Get All Airports
+```bash
+GET /api/runways/all
+
+# Returns runway configs for all monitored airports
+```
+
+### Get Runway History
+```bash
+GET /api/runway/{airport_code}/history?hours=24
+
+# Shows configuration changes over time
+```
+
+### List Monitored Airports
+```bash
+GET /api/airports
+
+# Returns all airports with current status
+```
+
+### System Status
+```bash
+GET /api/status
+
+# System health and statistics
+```
+
+## 📊 Dashboards
+
+### Real-Time Monitoring Dashboard
+Access at: `http://localhost:8000/dashboard`
+
+Features:
+- **System Overview**: Total airports, active status, parsing success rates
+- **Activity Stats**: Updates tracked over last hour, day, week, month
+- **Runway Changes**: Real-time feed of configuration changes across all airports
+- **Low Confidence Alerts**: Airports where parsing confidence is < 100%
+- **Stale Airport Detection**: Alerts for airports with no updates in 3+ hours
+- **Auto-refresh**: Updates every 30 seconds
+
+### Human Review Dashboard
+Access at: `http://localhost:8000/review`
+
+An interactive interface for reviewing and correcting parsing errors:
+
+**Queue Prioritization:**
+- Low confidence parses (< 100%)
+- Results with empty runway arrays
+- Failed parsing attempts
+
+**Review Workflow:**
+1. System displays ATIS text with current parse results
+2. Human reviewer corrects arriving/departing runway fields
+3. Optional notes can be added for context
+4. Two-action workflow:
+   - **"Mark as Correct"** - Skip if parsing is actually accurate
+   - **"Submit Correction"** - Save corrections and learn from them
+
+**Learning System:**
+When you submit a correction:
+1. Original and corrected data stored in `human_reviews` table
+2. Patterns extracted from ATIS text and stored in `parsing_corrections` table
+3. System builds knowledge base of successful corrections
+4. Success rates tracked for each learned pattern
+5. Future parsing can reference these corrections
+
+**Statistics Tracked:**
+- Pending items needing review
+- Total reviews completed
+- Breakdown by issue type (low confidence, missing data, failed)
+
+### Using the Review Dashboard
+
+```bash
+# Access the review dashboard
+open http://localhost:8000/review
+
+# Check how many items need review
+curl http://localhost:8000/api/review/stats
+
+# Get next 20 items in queue
+curl http://localhost:8000/api/review/pending?limit=20
+```
+
+**Example Review Process:**
+
+1. Dashboard shows: **KDEN** - 0% confidence
+   - ATIS: "DEPG RWY17L, RWY25"
+   - Current Parse: Arriving: [], Departing: []
+
+2. Human corrects:
+   - Arriving: (leave empty)
+   - Departing: 17L, 25
+   - Note: "DEPG = departing"
+
+3. System learns:
+   - Pattern: "DEPG RWY" → departing runways
+   - Stores this correction for KDEN
+   - Improves future parsing accuracy
+
+**Feedback Loop:**
+
+```
+┌─────────────────┐
+│   ATIS Data     │
+│   Collected     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Parse Runways  │◄────────┐
+│  (confidence)   │         │
+└────────┬────────┘         │
+         │                  │
+         ▼                  │
+┌─────────────────┐         │
+│ Low Confidence? │         │
+│   Empty Data?   │         │
+└────────┬────────┘         │
+         │ YES              │
+         ▼                  │
+┌─────────────────┐         │
+│ Human Reviews   │         │
+│  & Corrects     │         │
+└────────┬────────┘         │
+         │                  │
+         ▼                  │
+┌─────────────────┐         │
+│ Store Pattern   │         │
+│  in Database    │─────────┘
+└─────────────────┘
+   Improves Future
+     Parsing
+```
+
+## 📊 Data Collection Schedule
+
+The collector runs every 5 minutes via cron, aligned with typical ATIS update patterns. This ensures:
+- Captures regular updates
+- Detects emergency configuration changes
+- Minimizes API calls while maintaining data freshness
+- Automatically parses and stores runway configurations with confidence scores
+
+## 🧠 How It Works
+
+### 1. Data Collection
+- Fetches D-ATIS JSON from `https://datis.clowd.io/api/all`
+- Stores raw ATIS text with timestamps
+- Detects changes using content hashing
+
+### 2. Runway Parsing
+The parser uses regex patterns to identify:
+- **Arrival runways**: "APPROACH", "LANDING", "APCH RWY"
+- **Departure runways**: "DEPARTURE", "TAKEOFF", "DEP RWY"
+- **Combined operations**: "RWYS IN USE"
+
+### 3. Traffic Flow Detection
+Calculates average runway heading to determine flow:
+- North (340°-020°): Runways 34, 35, 36, 01, 02
+- South (160°-200°): Runways 16, 17, 18, 19, 20
+- East (070°-110°): Runways 07, 08, 09, 10, 11
+- West (250°-290°): Runways 25, 26, 27, 28, 29
+
+## 📈 Training & Improvement
+
+### Data Requirements
+- **Minimum**: 2-3 weeks (4,000+ samples)
+- **Robust**: 1-2 months (17,000+ samples)
+- **Seasonal**: 3+ months (captures wind patterns)
+
+### Model Evolution Path
+1. **Current**: Rule-based regex patterns (85-90% accuracy)
+2. **Active**: Human-in-the-loop corrections (improving daily)
+3. **Next**: NLP with spaCy + learned patterns (90-95% accuracy)
+4. **Future**: Fine-tuned BERT with human corrections (95%+ accuracy)
+
+### Accuracy Monitoring
+```sql
+-- Check parser accuracy
+SELECT
+    airport_code,
+    AVG(confidence_score) as avg_confidence,
+    COUNT(*) as samples
+FROM runway_configs
+WHERE created_at > NOW() - INTERVAL '7 days'
+GROUP BY airport_code
+ORDER BY avg_confidence DESC;
+
+-- View human corrections
+SELECT
+    airport_code,
+    COUNT(*) as corrections_made,
+    COUNT(CASE WHEN review_status = 'approved' THEN 1 END) as marked_correct,
+    COUNT(CASE WHEN review_status = 'corrected' THEN 1 END) as needed_correction
+FROM human_reviews
+GROUP BY airport_code
+ORDER BY corrections_made DESC;
+
+-- Check learned patterns
+SELECT
+    airport_code,
+    COUNT(*) as patterns_learned,
+    AVG(success_rate) as avg_success_rate
+FROM parsing_corrections
+GROUP BY airport_code
+HAVING COUNT(*) > 0
+ORDER BY patterns_learned DESC;
+```
+
+## 🏢 Airport-Specific Notes
+
+### Seattle (KSEA)
+- **South Flow**: 16L, 16C, 16R (most common)
+- **North Flow**: 34L, 34C, 34R (strong south winds)
+
+### San Francisco (KSFO)
+- **West Flow**: 28L, 28R (typical)
+- **Southeast Flow**: 19L, 19R (rare)
+- **Special**: Often uses crossing runways (28s and 1s)
+
+### Los Angeles (KLAX)
+- **West Flow**: 24L, 24R, 25L, 25R
+- **East Flow**: 06L, 06R, 07L, 07R
+- **Complex**: Quad-parallel operations
+
+### Split-ATIS Airports
+Some major airports publish separate arrival and departure ATIS broadcasts:
+- **ARR INFO**: Contains only arrival runway assignments
+- **DEP INFO**: Contains only departure runway assignments
+
+The system automatically merges these into a single configuration. Split-ATIS airports include:
+KATL, KCLE, KCLT, KCVG, KDEN, KDFW, KDTW, KMCO, KMIA, KMSP, KPHL, KPIT, KTPA
+
+## 🔧 Configuration
+
+### Environment Variables
+```bash
+DB_HOST=localhost
+DB_NAME=runway-detection
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_PORT=5432
+```
+
+### Database Maintenance
+```sql
+-- Clean old data (>90 days)
+DELETE FROM atis_data 
+WHERE collected_at < NOW() - INTERVAL '90 days';
+
+-- Analyze runway usage patterns
+SELECT * FROM get_runway_usage_stats('KSEA', 30);
+```
+
+## 📊 Monitoring
+
+### Key Metrics
+- **Data Freshness**: <5 minutes from ATIS update
+- **Parser Confidence**: Target >0.8 average
+- **API Response Time**: <100ms p95
+- **Collection Success Rate**: >99%
+
+### Health Checks
+```bash
+# API health
+curl http://localhost:8000/health
+
+# System status
+curl http://localhost:8000/api/status
+```
+
+## 🚧 Known Limitations
+
+1. **Pattern Variations**: Some airports use non-standard ATIS phrasing
+2. **Special Operations**: May miss "opposite direction ops" or emergency configs
+3. **Closed Runways**: Currently doesn't track runway closures
+4. **International**: Only supports US airports (ICAO codes starting with K)
+
+## 🔮 Future Enhancements
+
+- [x] Real-time monitoring dashboard
+- [x] Human-in-the-loop review system
+- [x] Learning from human corrections
+- [ ] Apply learned patterns automatically in parser
+- [ ] Machine learning model trained on corrections
+- [ ] WebSocket support for real-time updates
+- [ ] Historical trend analysis
+- [ ] Wind-based runway prediction
+- [ ] Integration with ATC audio feeds
+- [ ] Mobile app notifications
+- [ ] GraphQL API option
+
+## 📝 Contributing
+
+### Help Improve Parsing Accuracy
+
+**Use the Human Review Dashboard:**
+1. Visit `http://localhost:8000/review`
+2. Review items with low confidence or missing data
+3. Correct runway assignments
+4. Your corrections automatically improve future parsing
+
+**Other Contributions:**
+1. Collect ATIS samples with unusual patterns
+2. Add regex patterns for new phrases
+3. Test with diverse airport configurations
+4. Report parsing issues via GitHub
+
+## 📄 License
+
+MIT License - See LICENSE file
+
+## 🙏 Acknowledgments
+
+- D-ATIS data provided by clowd.io
+- Inspired by the lack of runway direction APIs
+- Aviation community for ATIS format documentation
+
+## 📞 Support
+
+For issues or questions:
+- Open an issue on GitHub
+- API documentation: http://localhost:8000/docs
+- Monitoring dashboard: http://localhost:8000/dashboard
+- Review dashboard: http://localhost:8000/review
+- System status: http://localhost:8000/api/status
+
 ---
 
-## Trivia & Fun Facts
-
-### ATIS Information Letters
-
-ATIS broadcasts cycle through letters A-Z (skipping letters that sound similar to others). When they reach Z, they wrap back to A. The letter changes whenever the ATIS content changes.
-
-### Why "16L" and not "160"?
-
-Runway numbers are magnetic headings divided by 10. Runway 16L faces approximately 160 degrees magnetic. The "L" means it's the left runway when you have parallel runways (L = Left, C = Center, R = Right).
-
-### The Opposite Direction Mystery
-
-Sometimes you'll see airports briefly report both 16 and 34 runways (opposite ends of the same physical runway). This usually indicates a transition period or special operations.
-
-### Split ATIS Airports
-
-Some busy airports have separate ATIS for arrivals and departures. This allows different controllers to update their relevant information without affecting the other. The system handles this by pairing ARR INFO and DEP INFO broadcasts.
-
----
-
-## Contributing
-
-This project uses the PolyForm Noncommercial license. You're welcome to:
-
-- Use it for personal, educational, or research purposes
-- Modify and distribute for non-commercial use
-- Submit issues and pull requests
-
-Commercial use requires a separate license agreement.
-
----
-
-## License
-
-[PolyForm Noncommercial License 1.0.0](LICENSE)
-
-This project is free for non-commercial use including:
-- Personal projects and hobby use
-- Educational and research purposes
-- Non-profit organizations
-
-Commercial use requires licensing. Contact the author for details.
-
----
-
-## Acknowledgments
-
-- **[clowd.io](https://datis.clowd.io/)** for providing free D-ATIS data
-- **Claude Code** by Anthropic for significant development assistance
-- The aviation community for their feedback and testing
-
----
-
-## Disclaimer
-
-This tool is for informational purposes only. Always verify runway information through official channels before making any flight-related decisions. The accuracy of parsed data is not guaranteed.
+**Note**: This system is for informational purposes only. Always verify runway information through official aviation sources for operational use.

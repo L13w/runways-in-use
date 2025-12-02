@@ -321,7 +321,7 @@
             color: white;
         }
 
-        /* Individual action buttons */
+        /* Individual action buttons - now separate grid items */
         .fr24-link, .report-error-btn {
             padding: 4px 10px;
             font-size: 11px;
@@ -362,6 +362,165 @@
             background: var(--accent-green);
             border-color: var(--accent-green);
             color: white;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-section {
+            margin-bottom: 16px;
+        }
+
+        .modal-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .modal-sublabel {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .modal-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .modal-current {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-muted);
+            background: var(--bg-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+        }
+
+        .modal-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .modal-btn-cancel {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .modal-btn-cancel:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .modal-btn-submit {
+            background: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            color: white;
+        }
+
+        .modal-btn-submit:hover {
+            background: #2563eb;
+        }
+
+        .modal-atis-preview {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+            padding: 12px;
+            border-radius: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
         /* Drawer */
@@ -532,6 +691,63 @@
 </head>
 <body>
     <div id="app" v-cloak>
+        <!-- Error Report Modal -->
+        <div v-if="showErrorModal" class="modal-overlay" @click.self="closeErrorModal">
+            <div class="modal">
+                <div class="modal-header">
+                    <span class="modal-title">Report Error for {{ errorModalAirport }}</span>
+                    <button class="modal-close" @click="closeErrorModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-section">
+                        <label class="modal-label">Current D-ATIS</label>
+                        <div v-if="errorModalAtisLoading" class="modal-atis-preview" style="text-align: center; padding: 20px;">
+                            <div class="loading-spinner" style="width: 24px; height: 24px; margin: 0 auto 8px;"></div>
+                            Loading...
+                        </div>
+                        <div v-else-if="errorModalAtisText" class="modal-atis-preview">{{ errorModalAtisText }}</div>
+                        <div v-else class="modal-atis-preview" style="color: var(--text-muted); font-style: italic;">No D-ATIS data available</div>
+                    </div>
+
+                    <div class="modal-current">
+                        <strong>Current parsed values:</strong><br>
+                        Arrivals: {{ formatRunways(errorModalCurrentArrivals) }}<br>
+                        Departures: {{ formatRunways(errorModalCurrentDepartures) }}
+                    </div>
+
+                    <div class="modal-section">
+                        <label class="modal-label">
+                            Correct Arrivals <span class="modal-sublabel">(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="modal-input"
+                            v-model="errorModalArrivals"
+                            placeholder="e.g., 28L, 28R"
+                        >
+                        <div class="modal-hint">Enter runway numbers separated by commas, or leave blank</div>
+                    </div>
+
+                    <div class="modal-section">
+                        <label class="modal-label">
+                            Correct Departures <span class="modal-sublabel">(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="modal-input"
+                            v-model="errorModalDepartures"
+                            placeholder="e.g., 28L, 28R"
+                        >
+                        <div class="modal-hint">Enter runway numbers separated by commas, or leave blank</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-btn modal-btn-cancel" @click="closeErrorModal">Cancel</button>
+                    <button class="modal-btn modal-btn-submit" @click="submitErrorReport">Submit Report</button>
+                </div>
+            </div>
+        </div>
+
         <div class="container">
             <!-- Header -->
             <div class="header">
@@ -608,10 +824,10 @@
                             <button
                                 class="report-error-btn"
                                 :class="{ reported: reportedErrors[airport.airport] }"
-                                @click.stop="reportError(airport.airport)"
+                                @click.stop="openErrorModal(airport)"
                                 :disabled="reportedErrors[airport.airport]"
                             >
-                                {{ reportedErrors[airport.airport] ? 'Reported' : 'Report Error' }}
+                                {{ reportedErrors[airport.airport] ? 'Reported ✓' : 'Report Error' }}
                             </button>
                             <div></div>
                             <div class="meta-info">
@@ -624,10 +840,10 @@
                                 FlightRadar24
                             </a>
                             <div style="display: flex; gap: 8px;">
-                                <button class="pin-btn pinned" @click.stop="togglePin(airport.airport)">
+                                <button class="pin-btn pinned" @click.stop="togglePin(airport.airport)" title="Unpin this airport">
                                     ★
                                 </button>
-                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }">
+                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }" title="View D-ATIS history">
                                     {{ expandedDrawers[airport.airport] ? '⌃' : '⌄' }}
                                 </button>
                             </div>
@@ -706,10 +922,10 @@
                             <button
                                 class="report-error-btn"
                                 :class="{ reported: reportedErrors[airport.airport] }"
-                                @click.stop="reportError(airport.airport)"
+                                @click.stop="openErrorModal(airport)"
                                 :disabled="reportedErrors[airport.airport]"
                             >
-                                {{ reportedErrors[airport.airport] ? 'Reported' : 'Report Error' }}
+                                {{ reportedErrors[airport.airport] ? 'Reported ✓' : 'Report Error' }}
                             </button>
                             <div></div>
                             <div class="meta-info">
@@ -726,10 +942,11 @@
                                     class="pin-btn"
                                     :class="{ pinned: pinnedAirportCodes.includes(airport.airport) }"
                                     @click.stop="togglePin(airport.airport)"
+                                    :title="pinnedAirportCodes.includes(airport.airport) ? 'Unpin this airport' : 'Pin this airport'"
                                 >
                                     {{ pinnedAirportCodes.includes(airport.airport) ? '★' : '☆' }}
                                 </button>
-                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }">
+                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }" title="View D-ATIS history">
                                     {{ expandedDrawers[airport.airport] ? '⌃' : '⌄' }}
                                 </button>
                             </div>
@@ -786,6 +1003,7 @@
             <!-- Footer -->
             <div class="footer">
                 <p>&copy; 2024 <a href="https://github.com/L13w">Inertial Navigation LLC</a>. Licensed under <a href="https://polyformproject.org/licenses/noncommercial/1.0.0/" target="_blank">PolyForm Noncommercial 1.0.0</a>.</p>
+                <p style="margin-top: 8px;"><a href="/terms">Terms of Use</a> | <a href="/privacy">Privacy Policy</a></p>
             </div>
         </div>
     </div>
@@ -806,7 +1024,16 @@
                     loading: true,
                     showPinnedOnly: false,
                     lastUpdate: 'just now',
-                    refreshInterval: null
+                    refreshInterval: null,
+                    // Error report modal
+                    showErrorModal: false,
+                    errorModalAirport: '',
+                    errorModalCurrentArrivals: [],
+                    errorModalCurrentDepartures: [],
+                    errorModalArrivals: '',
+                    errorModalDepartures: '',
+                    errorModalAtisText: '',
+                    errorModalAtisLoading: false
                 };
             },
             computed: {
@@ -874,17 +1101,65 @@
                 togglePinnedFilter() {
                     this.showPinnedOnly = !this.showPinnedOnly;
                 },
-                async reportError(airportCode) {
-                    if (this.reportedErrors[airportCode]) return;
+                async openErrorModal(airport) {
+                    if (this.reportedErrors[airport.airport]) return;
+                    this.errorModalAirport = airport.airport;
+                    this.errorModalCurrentArrivals = airport.current_config?.arriving_runways || [];
+                    this.errorModalCurrentDepartures = airport.current_config?.departing_runways || [];
+                    this.errorModalArrivals = '';
+                    this.errorModalDepartures = '';
+                    this.errorModalAtisText = '';
+                    this.errorModalAtisLoading = true;
+                    this.showErrorModal = true;
+
+                    // Fetch current D-ATIS
+                    try {
+                        const response = await fetch(`/api/v1/runway/${airport.airport}/reports?limit=1`);
+                        const reports = await response.json();
+                        if (reports && reports.length > 0 && reports[0].datis_text) {
+                            this.errorModalAtisText = reports[0].datis_text;
+                        }
+                    } catch (error) {
+                        console.error('Failed to load D-ATIS:', error);
+                    } finally {
+                        this.errorModalAtisLoading = false;
+                    }
+                },
+                closeErrorModal() {
+                    this.showErrorModal = false;
+                    this.errorModalAirport = '';
+                    this.errorModalArrivals = '';
+                    this.errorModalDepartures = '';
+                    this.errorModalAtisText = '';
+                },
+                async submitErrorReport() {
+                    const airportCode = this.errorModalAirport;
+                    if (!airportCode) return;
+
+                    // Parse the user input into arrays
+                    const parseRunways = (input) => {
+                        if (!input || !input.trim()) return null;
+                        return input.split(',')
+                            .map(r => r.trim().toUpperCase())
+                            .filter(r => r.length > 0);
+                    };
+
+                    const correctedArrivals = parseRunways(this.errorModalArrivals);
+                    const correctedDepartures = parseRunways(this.errorModalDepartures);
 
                     try {
                         const response = await fetch(`/api/v1/report-error/${airportCode}`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' }
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                corrected_arrivals: correctedArrivals,
+                                corrected_departures: correctedDepartures
+                            })
                         });
 
                         if (response.ok) {
                             this.reportedErrors[airportCode] = true;
+                            this.closeErrorModal();
                             // Auto-clear after 3 seconds
                             setTimeout(() => {
                                 this.reportedErrors[airportCode] = false;

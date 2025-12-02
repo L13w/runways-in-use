@@ -796,9 +796,17 @@ async def get_system_status():
         if conn:
             conn.close()
 
+class ErrorReportRequest(BaseModel):
+    corrected_arrivals: Optional[List[str]] = None
+    corrected_departures: Optional[List[str]] = None
+
 @app.post("/api/v1/report-error/{airport_code}")
-async def report_error(airport_code: str):
+async def report_error(airport_code: str, request: ErrorReportRequest = None):
     """Report a parsing error for an airport (user-triggered)"""
+
+    # Handle case where request body is empty or not provided
+    if request is None:
+        request = ErrorReportRequest()
 
     airport_code = airport_code.upper()
     if not airport_code.startswith('K'):
@@ -852,7 +860,7 @@ async def report_error(airport_code: str):
             if pair:
                 paired_atis_id = pair['id']
 
-        # Insert error report
+        # Insert error report with optional user corrections
         cursor.execute("""
             INSERT INTO error_reports (
                 airport_code,
@@ -860,8 +868,12 @@ async def report_error(airport_code: str):
                 paired_atis_id,
                 parsed_arriving_runways,
                 parsed_departing_runways,
-                confidence_score
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                confidence_score,
+                corrected_arriving_runways,
+                corrected_departing_runways,
+                reviewed,
+                reviewed_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             airport_code,
@@ -869,7 +881,12 @@ async def report_error(airport_code: str):
             paired_atis_id,
             json.dumps(current['arriving_runways'] or []),
             json.dumps(current['departing_runways'] or []),
-            current['confidence_score']
+            current['confidence_score'],
+            json.dumps(request.corrected_arrivals) if request.corrected_arrivals else None,
+            json.dumps(request.corrected_departures) if request.corrected_departures else None,
+            # If user provided corrections, mark as reviewed
+            True if (request.corrected_arrivals or request.corrected_departures) else False,
+            datetime.utcnow() if (request.corrected_arrivals or request.corrected_departures) else None
         ))
 
         report_id = cursor.fetchone()['id']
@@ -1293,6 +1310,13 @@ async def review_dashboard():
                     showCurrentItem();
                 } catch (error) {
                     console.error('Failed to load review item:', error);
+                    // If a specific config_id was requested but not found, redirect to main review page
+                    const configId = getConfigIdFromUrl();
+                    if (configId) {
+                        console.log('Config not found, redirecting to main review page');
+                        window.location.href = '/review';
+                        return;
+                    }
                     container.innerHTML = '<div class="empty-state"><p>Error loading review item</p></div>';
                 }
             }
@@ -2432,6 +2456,317 @@ async def get_current_airports():
         
     finally:
         conn.close()
+
+# Privacy Policy
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """Serve the privacy policy page"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Privacy Policy - Runways in Use</title>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            :root {
+                --bg-primary: #0a0e14;
+                --bg-secondary: #151a21;
+                --border-color: #2d3748;
+                --text-primary: #e5e7eb;
+                --text-secondary: #9ca3af;
+                --accent-blue: #3b82f6;
+            }
+            body {
+                font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                line-height: 1.8;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 48px 24px;
+            }
+            h1 {
+                font-size: 28px;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
+            .subtitle {
+                color: var(--text-secondary);
+                font-size: 14px;
+                margin-bottom: 32px;
+            }
+            h2 {
+                font-size: 18px;
+                font-weight: 600;
+                margin-top: 32px;
+                margin-bottom: 12px;
+                color: var(--accent-blue);
+            }
+            p, ul {
+                margin-bottom: 16px;
+                color: var(--text-secondary);
+            }
+            ul {
+                padding-left: 24px;
+            }
+            li {
+                margin-bottom: 8px;
+            }
+            a {
+                color: var(--accent-blue);
+                text-decoration: none;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            .back-link {
+                display: inline-block;
+                margin-bottom: 24px;
+                font-size: 14px;
+            }
+            .footer {
+                margin-top: 48px;
+                padding-top: 24px;
+                border-top: 1px solid var(--border-color);
+                text-align: center;
+                color: var(--text-secondary);
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <a href="/dashboard" class="back-link">&larr; Back to Dashboard</a>
+            <h1>Privacy Policy</h1>
+            <p class="subtitle">Last updated: November 2024</p>
+
+            <h2>Overview</h2>
+            <p>Runways in Use is committed to protecting your privacy. This policy explains what information we collect and how we use it.</p>
+
+            <h2>Information We Collect</h2>
+            <p><strong>We do not collect any personal information.</strong> Specifically:</p>
+            <ul>
+                <li>We do not require user registration or accounts</li>
+                <li>We do not collect names, email addresses, or contact information</li>
+                <li>We do not use tracking cookies or analytics services</li>
+                <li>We do not collect IP addresses for tracking purposes</li>
+            </ul>
+
+            <h2>Local Storage</h2>
+            <p>The website uses your browser's local storage to remember your pinned airports. This data:</p>
+            <ul>
+                <li>Is stored only on your device</li>
+                <li>Is never transmitted to our servers</li>
+                <li>Can be cleared by clearing your browser data</li>
+            </ul>
+
+            <h2>Data Sources</h2>
+            <p>All runway information displayed on this site is derived from publicly available D-ATIS (Digital Automatic Terminal Information Service) data provided by the FAA.</p>
+
+            <h2>Third-Party Links</h2>
+            <p>This site contains links to FlightRadar24 and other third-party websites. We are not responsible for the privacy practices of these external sites.</p>
+
+            <h2>Changes to This Policy</h2>
+            <p>We may update this privacy policy from time to time. Any changes will be posted on this page.</p>
+
+            <h2>Contact</h2>
+            <p>For questions about this privacy policy, please visit our <a href="https://github.com/L13w" target="_blank">GitHub page</a>.</p>
+
+            <div class="footer">
+                <p>&copy; 2024 Inertial Navigation LLC. <a href="/terms">Terms of Use</a> | <a href="/privacy">Privacy Policy</a></p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+# Terms of Use
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_of_use():
+    """Serve the terms of use page"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Terms of Use - Runways in Use</title>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            :root {
+                --bg-primary: #0a0e14;
+                --bg-secondary: #151a21;
+                --border-color: #2d3748;
+                --text-primary: #e5e7eb;
+                --text-secondary: #9ca3af;
+                --accent-blue: #3b82f6;
+                --accent-amber: #f59e0b;
+            }
+            body {
+                font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                line-height: 1.8;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 48px 24px;
+            }
+            h1 {
+                font-size: 28px;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
+            .subtitle {
+                color: var(--text-secondary);
+                font-size: 14px;
+                margin-bottom: 32px;
+            }
+            h2 {
+                font-size: 18px;
+                font-weight: 600;
+                margin-top: 32px;
+                margin-bottom: 12px;
+                color: var(--accent-blue);
+            }
+            p, ul {
+                margin-bottom: 16px;
+                color: var(--text-secondary);
+            }
+            ul {
+                padding-left: 24px;
+            }
+            li {
+                margin-bottom: 8px;
+            }
+            a {
+                color: var(--accent-blue);
+                text-decoration: none;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            .back-link {
+                display: inline-block;
+                margin-bottom: 24px;
+                font-size: 14px;
+            }
+            .warning-box {
+                background: rgba(245, 158, 11, 0.15);
+                border: 1px solid var(--accent-amber);
+                border-radius: 8px;
+                padding: 16px;
+                margin: 24px 0;
+                color: #fbbf24;
+            }
+            .warning-box strong {
+                display: block;
+                margin-bottom: 8px;
+            }
+            .footer {
+                margin-top: 48px;
+                padding-top: 24px;
+                border-top: 1px solid var(--border-color);
+                text-align: center;
+                color: var(--text-secondary);
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <a href="/dashboard" class="back-link">&larr; Back to Dashboard</a>
+            <h1>Terms of Use</h1>
+            <p class="subtitle">Last updated: November 2024</p>
+
+            <div class="warning-box">
+                <strong>IMPORTANT DISCLAIMER</strong>
+                This website is experimental and provided for informational purposes only. The data displayed is NOT guaranteed to be accurate and should NEVER be used for flight planning, navigation, or any aviation operational decisions.
+            </div>
+
+            <h2>Acceptance of Terms</h2>
+            <p>By accessing and using Runways in Use ("the Service"), you accept and agree to be bound by these Terms of Use.</p>
+
+            <h2>Service Description</h2>
+            <p>Runways in Use is an experimental service that attempts to parse and display runway configuration information from publicly available D-ATIS data. The service is provided on an "as is" and "as available" basis.</p>
+
+            <h2>No Warranties</h2>
+            <p>We make no warranties or representations about the accuracy, reliability, completeness, or timeliness of the information provided. Specifically:</p>
+            <ul>
+                <li>Data may be incorrect, incomplete, or outdated</li>
+                <li>The parsing algorithms are experimental and may produce errors</li>
+                <li>Service availability is not guaranteed</li>
+                <li>The service may be discontinued at any time without notice</li>
+            </ul>
+
+            <h2>Limitation of Liability</h2>
+            <p>Under no circumstances shall Inertial Navigation LLC, its owners, employees, or contributors be liable for any direct, indirect, incidental, special, consequential, or exemplary damages arising from:</p>
+            <ul>
+                <li>Your use of or inability to use the Service</li>
+                <li>Any errors or inaccuracies in the displayed information</li>
+                <li>Any decisions made based on information from this Service</li>
+                <li>Service interruptions or discontinuation</li>
+            </ul>
+
+            <h2>Appropriate Use</h2>
+            <p>This Service is intended for:</p>
+            <ul>
+                <li>General interest and educational purposes</li>
+                <li>Flight simulation and virtual aviation</li>
+                <li>Situational awareness (with verification from official sources)</li>
+            </ul>
+            <p>This Service is NOT intended for:</p>
+            <ul>
+                <li>Actual flight planning or navigation</li>
+                <li>Operational aviation decisions</li>
+                <li>Any use where accuracy is critical</li>
+            </ul>
+
+            <h2>Official Sources</h2>
+            <p>For accurate and authoritative runway information, always consult official sources such as:</p>
+            <ul>
+                <li>Live ATIS broadcasts on published frequencies</li>
+                <li>Air Traffic Control</li>
+                <li>Official FAA publications and NOTAMs</li>
+                <li>Your airline or flight operations department</li>
+            </ul>
+
+            <h2>Service Availability</h2>
+            <p>We make no guarantees regarding:</p>
+            <ul>
+                <li>Uptime or availability of the Service</li>
+                <li>Continued operation of the Service</li>
+                <li>Response time or performance</li>
+                <li>Data freshness or update frequency</li>
+            </ul>
+
+            <h2>Changes to Terms</h2>
+            <p>We reserve the right to modify these terms at any time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
+
+            <h2>License</h2>
+            <p>This software is licensed under the <a href="https://polyformproject.org/licenses/noncommercial/1.0.0/" target="_blank">PolyForm Noncommercial 1.0.0</a> license.</p>
+
+            <h2>Contact</h2>
+            <p>For questions about these terms, please visit our <a href="https://github.com/L13w" target="_blank">GitHub page</a>.</p>
+
+            <div class="footer">
+                <p>&copy; 2024 Inertial Navigation LLC. <a href="/terms">Terms of Use</a> | <a href="/privacy">Privacy Policy</a></p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
 
 # Health check endpoint
 @app.get("/health")

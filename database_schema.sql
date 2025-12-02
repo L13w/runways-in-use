@@ -59,29 +59,9 @@ CREATE TABLE IF NOT EXISTS airports (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create error reports table for user-reported errors and computer-detected issues
-CREATE TABLE IF NOT EXISTS error_reports (
-    id SERIAL PRIMARY KEY,
-    airport_code VARCHAR(4) NOT NULL,
-    reported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    current_atis_id INTEGER NOT NULL REFERENCES atis_data(id) ON DELETE CASCADE,
-    paired_atis_id INTEGER REFERENCES atis_data(id) ON DELETE CASCADE,
-    parsed_arriving_runways JSONB NOT NULL DEFAULT '[]',
-    parsed_departing_runways JSONB NOT NULL DEFAULT '[]',
-    confidence_score FLOAT NOT NULL DEFAULT 0.0,
-    reported_by VARCHAR(20) DEFAULT 'user',  -- 'user' or 'computer'
-    reviewed BOOLEAN NOT NULL DEFAULT FALSE,
-    reviewed_at TIMESTAMP,
-    corrected_arriving_runways JSONB,
-    corrected_departing_runways JSONB,
-    reviewer_notes TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(airport_code, current_atis_id)
-);
-
 -- Insert known airports
 INSERT INTO airports (airport_code, airport_name, city, state, timezone, runways) VALUES
-    ('KSEA', 'Seattle-Tacoma International', 'Seattle', 'WA', 'America/Los_Angeles',
+    ('KSEA', 'Seattle-Tacoma International', 'Seattle', 'WA', 'America/Los_Angeles', 
      '["16L", "16C", "16R", "34L", "34C", "34R"]'::jsonb),
     ('KSFO', 'San Francisco International', 'San Francisco', 'CA', 'America/Los_Angeles',
      '["01L", "01R", "19L", "19R", "10L", "10R", "28L", "28R"]'::jsonb),
@@ -99,9 +79,6 @@ CREATE INDEX IF NOT EXISTS idx_atis_hash ON atis_data(content_hash);
 CREATE INDEX IF NOT EXISTS idx_atis_changed ON atis_data(is_changed, collected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runway_airport ON runway_configs(airport_code, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_changes_airport ON runway_changes(airport_code, change_time DESC);
-CREATE INDEX IF NOT EXISTS idx_error_reports_airport ON error_reports(airport_code);
-CREATE INDEX IF NOT EXISTS idx_error_reports_reviewed ON error_reports(reviewed);
-CREATE INDEX IF NOT EXISTS idx_error_reports_reported_at ON error_reports(reported_at DESC);
 
 -- Create views for common queries
 CREATE OR REPLACE VIEW current_runway_configs AS
@@ -122,7 +99,7 @@ ORDER BY rc.airport_code, rc.created_at DESC;
 
 -- View for runway change frequency analysis
 CREATE OR REPLACE VIEW runway_change_stats AS
-SELECT
+SELECT 
     airport_code,
     DATE(change_time) as date,
     COUNT(*) as changes_count,
@@ -132,7 +109,7 @@ GROUP BY airport_code, DATE(change_time)
 ORDER BY airport_code, date DESC;
 
 -- Function to detect runway configuration changes
-CREATE OR REPLACE FUNCTION detect_runway_change()
+CREATE OR REPLACE FUNCTION detect_runway_change() 
 RETURNS TRIGGER AS $$
 DECLARE
     prev_config RECORD;
@@ -146,7 +123,7 @@ BEGIN
       AND id < NEW.id
     ORDER BY id DESC
     LIMIT 1;
-
+    
     -- If there was a previous config and it's different
     IF FOUND AND (
         prev_config.arriving_runways::text != NEW.arriving_runways::text OR
@@ -155,7 +132,7 @@ BEGIN
     ) THEN
         -- Calculate duration of previous configuration
         duration_mins := EXTRACT(EPOCH FROM (NEW.created_at - prev_config.created_at)) / 60;
-
+        
         -- Insert change record
         INSERT INTO runway_changes (
             airport_code,
@@ -179,7 +156,7 @@ BEGIN
             duration_mins
         );
     END IF;
-
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -206,14 +183,14 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     WITH runway_usage AS (
-        SELECT
+        SELECT 
             jsonb_array_elements_text(arriving_runways) as runway,
             'arrival' as usage_type
         FROM runway_configs
         WHERE airport_code = p_airport_code
           AND created_at > CURRENT_TIMESTAMP - (p_days || ' days')::INTERVAL
         UNION ALL
-        SELECT
+        SELECT 
             jsonb_array_elements_text(departing_runways) as runway,
             'departure' as usage_type
         FROM runway_configs
@@ -221,7 +198,7 @@ BEGIN
           AND created_at > CURRENT_TIMESTAMP - (p_days || ' days')::INTERVAL
     ),
     counts AS (
-        SELECT
+        SELECT 
             runway,
             COUNT(*) as total_usage,
             COUNT(CASE WHEN usage_type = 'arrival' THEN 1 END) as arrival_count,
@@ -229,7 +206,7 @@ BEGIN
         FROM runway_usage
         GROUP BY runway
     )
-    SELECT
+    SELECT 
         c.runway::VARCHAR,
         c.total_usage::INTEGER,
         c.arrival_count::INTEGER,
