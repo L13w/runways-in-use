@@ -564,12 +564,20 @@ class ATISCollector:
             logger.info(f"Cleaned up {deleted} old ATIS records")
     
     def cleanup_old_computer_reports(self, hours_to_keep: int = 2):
-        """Remove old computer-generated error reports to keep queue fresh"""
+        """Remove old computer-generated error reports to keep queue fresh.
+
+        IMPORTANT: Never delete reports that:
+        - Have been reviewed (reviewed = TRUE) - these are training data
+        - Have user-provided corrections (corrected_* is not null) - these are valuable
+        - Were reported by users (reported_by != 'computer') - these need human attention
+        """
         cursor = self.conn.cursor()
         cursor.execute("""
             DELETE FROM error_reports
             WHERE reported_by = 'computer'
               AND reviewed = FALSE
+              AND corrected_arriving_runways IS NULL
+              AND corrected_departing_runways IS NULL
               AND reported_at < NOW() - INTERVAL '%s hours'
         """, (hours_to_keep,))
         deleted = cursor.rowcount
