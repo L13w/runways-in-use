@@ -9,25 +9,7 @@ While weather data is readily available via API, runway direction information (w
 - Parsing runway information using pattern matching
 - Providing a simple REST API and web dashboard for runway configuration queries
 
-## 🚀 Deployment Options
-
-### Option 1: Azure Deployment (Recommended for Production)
-
-Deploy the complete system to Azure with automatic data collection:
-
-**📘 [Follow the Quick Deployment Guide](QUICK_DEPLOY.md)**
-
-What gets deployed:
-- ✅ API + Dashboard (publicly accessible)
-- ✅ Data collector (runs automatically every 5 minutes)
-- ✅ PostgreSQL database
-- ✅ Automatic CI/CD via GitHub Actions
-
-Cost: ~$40-50/month
-
-### Option 2: Local Development
-
-## 🚀 Quick Start (Local Development)
+## 🚀 Quick Start
 
 ### Using Docker Compose (Recommended)
 
@@ -164,7 +146,7 @@ An interactive interface for reviewing and correcting parsing errors:
 
 **Learning System:**
 When you submit a correction:
-1. Original and corrected data stored in `human_reviews` table
+1. Original and corrected data stored in `error_reports` table
 2. Patterns extracted from ATIS text and stored in `parsing_corrections` table
 3. System builds knowledge base of successful corrections
 4. Success rates tracked for each learned pattern
@@ -292,15 +274,15 @@ WHERE created_at > NOW() - INTERVAL '7 days'
 GROUP BY airport_code
 ORDER BY avg_confidence DESC;
 
--- View human corrections
+-- View error reports and corrections
 SELECT
     airport_code,
-    COUNT(*) as corrections_made,
-    COUNT(CASE WHEN review_status = 'approved' THEN 1 END) as marked_correct,
-    COUNT(CASE WHEN review_status = 'corrected' THEN 1 END) as needed_correction
-FROM human_reviews
+    COUNT(*) as total_reports,
+    COUNT(CASE WHEN reviewed THEN 1 END) as reviewed_count,
+    COUNT(CASE WHEN corrected_arriving_runways IS NOT NULL THEN 1 END) as corrections_made
+FROM error_reports
 GROUP BY airport_code
-ORDER BY corrections_made DESC;
+ORDER BY total_reports DESC;
 
 -- Check learned patterns
 SELECT

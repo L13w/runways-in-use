@@ -35,9 +35,9 @@ The Runway Direction Detection System is a real-time data collection and parsing
 │  │  atis_data  │  │runway_configs│  │ runway_changes   │   │
 │  │             │  │              │  │ (trigger-based)  │   │
 │  └─────────────┘  └──────────────┘  └──────────────────┘   │
-│  ┌─────────────┐  ┌──────────────┐                         │
-│  │human_reviews│  │parsing_corr. │                         │
-│  └─────────────┘  └──────────────┘                         │
+│  ┌──────────────┐  ┌──────────────┐                        │
+│  │error_reports │  │parsing_corr. │                        │
+│  └──────────────┘  └──────────────┘                        │
 └────────────────────────────┬────────────────────────────────┘
                              │ psycopg2
                              ▼
@@ -210,11 +210,8 @@ The collector handles these specially:
      │
      ▼
 ┌─────────────────────────────┐
-│ Fetch Pending Items         │ Query runway_configs WHERE:
-│                             │ - confidence < 1.0 OR
-│                             │ - arriving_runways = [] OR
-│                             │ - departing_runways = []
-│                             │ - NOT IN human_reviews
+│ Fetch Pending Items         │ Query error_reports WHERE:
+│                             │ - reviewed = FALSE
 └────┬────────────────────────┘
      │
      ▼
@@ -222,19 +219,19 @@ The collector handles these specially:
 │ Display ATIS + Parse Result │ Show original text + what parser found
 └────┬────────────────────────┘
      │
-     ├──▶ Option 1: Mark as Correct ──▶ INSERT INTO human_reviews (status='approved')
+     ├──▶ Option 1: Mark as Correct ──▶ UPDATE error_reports SET reviewed=TRUE
      │
      └──▶ Option 2: Submit Correction
           │
-          ├──▶ INSERT INTO human_reviews
-          │    - original_arriving, original_departing
-          │    - corrected_arriving, corrected_departing
-          │    - reviewer_notes, status='corrected'
+          ├──▶ UPDATE error_reports
+          │    - corrected_arriving_runways
+          │    - corrected_departing_runways
+          │    - reviewer_notes, reviewed=TRUE
           │
           └──▶ Extract patterns ──▶ INSERT INTO parsing_corrections
                - atis_pattern (text to match)
                - correction_type (what was fixed)
-               - success_rate (initialize to 0)
+               - success_rate (initialize to 1.0)
 ```
 
 ---
@@ -393,23 +390,27 @@ CREATE INDEX idx_changes_airport_time ON runway_changes(airport_code, changed_at
 
 **Populated by trigger** (see Trigger Logic section below)
 
-#### human_reviews
-**Purpose**: Store human corrections for learning
+#### error_reports
+**Purpose**: Store user-reported parsing errors for learning
 ```sql
-CREATE TABLE human_reviews (
+CREATE TABLE error_reports (
     id SERIAL PRIMARY KEY,
-    runway_config_id INTEGER REFERENCES runway_configs(id),
-    original_arriving JSONB,
-    original_departing JSONB,
-    corrected_arriving JSONB,
-    corrected_departing JSONB,
-    review_status VARCHAR(20),  -- 'pending', 'approved', 'corrected'
-    reviewer_notes TEXT,
-    reviewed_at TIMESTAMP DEFAULT NOW()
+    airport_code VARCHAR(4) NOT NULL,
+    reported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reported_by VARCHAR(20) DEFAULT 'user',
+    current_atis_id INTEGER NOT NULL REFERENCES atis_data(id),
+    parsed_arriving_runways JSONB NOT NULL DEFAULT '[]',
+    parsed_departing_runways JSONB NOT NULL DEFAULT '[]',
+    confidence_score FLOAT NOT NULL DEFAULT 0.0,
+    reviewed BOOLEAN NOT NULL DEFAULT FALSE,
+    reviewed_at TIMESTAMP,
+    corrected_arriving_runways JSONB,
+    corrected_departing_runways JSONB,
+    reviewer_notes TEXT
 );
 
-CREATE INDEX idx_reviews_status ON human_reviews(review_status);
-CREATE INDEX idx_reviews_config ON human_reviews(runway_config_id);
+CREATE INDEX idx_error_reports_airport ON error_reports(airport_code);
+CREATE INDEX idx_error_reports_reviewed ON error_reports(reviewed);
 ```
 
 #### parsing_corrections
@@ -424,7 +425,7 @@ CREATE TABLE parsing_corrections (
     expected_departing JSONB,
     success_rate DECIMAL(3,2) DEFAULT 0,
     times_applied INTEGER DEFAULT 0,
-    created_from_review_id INTEGER REFERENCES human_reviews(id),
+    created_from_review_id INTEGER,  -- References error_reports.id
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -834,10 +835,9 @@ WHERE airport_code = 'KSEA'
 ORDER BY created_at DESC
 LIMIT 1;
 
--- Efficient: Uses index on confidence_score
-SELECT * FROM runway_configs
-WHERE confidence_score < 1.0
-  AND id NOT IN (SELECT runway_config_id FROM human_reviews)
+-- Efficient: Uses index on reviewed
+SELECT * FROM error_reports
+WHERE reviewed = FALSE
 LIMIT 20;
 ```
 

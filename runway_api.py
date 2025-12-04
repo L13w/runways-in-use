@@ -29,8 +29,11 @@ DB_CONFIG = {
     'user': os.getenv('DB_USER', 'postgres'),
     'password': os.getenv('DB_PASSWORD', 'postgres'),
     'port': os.getenv('DB_PORT', '5432'),
-    'sslmode': 'require'
 }
+
+# Only add SSL if explicitly required
+if os.getenv('DB_SSLMODE'):
+    DB_CONFIG['sslmode'] = os.getenv('DB_SSLMODE')
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -235,8 +238,9 @@ def get_latest_configs_per_airport(conn):
                 ad.datis_text LIKE '%ARR INFO%' as is_arr_info
             FROM runway_configs rc
             JOIN atis_data ad ON rc.atis_id = ad.id
-            LEFT JOIN human_reviews hr ON rc.id = hr.runway_config_id
-            WHERE hr.id IS NULL
+            LEFT JOIN error_reports er ON rc.airport_code = er.airport_code
+                AND rc.atis_id = er.current_atis_id
+            WHERE er.id IS NULL
               AND (rc.confidence_score < 1.0
                    OR rc.arriving_runways::text = '[]'
                    OR rc.departing_runways::text = '[]')
