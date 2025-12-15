@@ -331,7 +331,7 @@ KATL, KCLE, KCLT, KCVG, KDEN, KDFW, KDTW, KMCO, KMIA, KMSP, KPHL, KPIT, KTPA
 1. **Pattern Variations**: Some airports use non-standard ATIS phrasing
 2. **Special Operations**: May miss "opposite direction ops" or emergency configs
 3. **Closed Runways**: Currently doesn't track runway closures
-4. **International**: Only supports US airports (ICAO codes starting with K)
+4. **International**: Only supports US airports and territories (ICAO prefixes K, P, and TJ)
 
 ---
 
