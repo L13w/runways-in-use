@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only the files needed for API and dashboard
+COPY runway_api.py .
+COPY runway_parser.py .
+COPY dashboard.html .
+
+# Expose port
+EXPOSE 8000
+
+# Run the API server
+CMD ["uvicorn", "runway_api:app", "--host", "0.0.0.0", "--port", "8000"]

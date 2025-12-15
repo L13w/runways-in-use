@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runways in Use - Live Airport Information</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0e14;
+            --bg-secondary: #151a21;
+            --bg-tertiary: #1f2937;
+            --border-color: #2d3748;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --runway-bg: #1a1f2e;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header */
+        .header {
+            margin-bottom: 32px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .warning-banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid #f59e0b;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #fbbf24;
+            font-weight: 500;
+        }
+
+        .footer {
+            margin-top: 48px;
+            padding: 24px 0;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--accent-blue);
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Search and Controls */
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .search-box {
+            flex: 1;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .search-box input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .btn {
+            padding: 12px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-blue);
+        }
+
+        .btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        /* Airport List */
+        .section-header {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            padding: 0 4px;
+        }
+
+        .airport-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .airport-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+
+        .airport-card:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .airport-header {
+            padding: 16px 20px;
+            display: grid;
+            grid-template-columns: 100px auto auto 1fr auto auto auto;
+            gap: 20px;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .airport-code-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .airport-code {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .airport-location {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
+        .runway-info {
+            display: flex;
+            gap: 24px;
+            font-size: 14px;
+        }
+
+        .runway-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .runway-label {
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
+        }
+
+        .runway-values {
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .runway-values.empty {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .meta-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .flow-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .flow-NORTH { background: #1e3a5f; color: #60a5fa; }
+        .flow-SOUTH { background: #5f1e1e; color: #f87171; }
+        .flow-EAST { background: #5f3a1e; color: #fb923c; }
+        .flow-WEST { background: #3a5f1e; color: #a3e635; }
+        .flow-NORTHWEST, .flow-NORTHEAST, .flow-SOUTHWEST, .flow-SOUTHEAST { background: #4a1e5f; color: #c084fc; }
+        .flow-MIXED { background: #4a4a4a; color: #d1d5db; }
+        .flow-UNKNOWN { background: #2d2d2d; color: #6b7280; }
+
+        .last-change {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+        }
+
+        .pin-btn, .expand-btn {
+            padding: 6px 10px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 12px;
+        }
+
+        .pin-btn:hover, .expand-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .pin-btn.pinned {
+            background: var(--accent-amber);
+            border-color: var(--accent-amber);
+            color: white;
+        }
+
+        .expand-btn.expanded {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        /* Individual action buttons - now separate grid items */
+        .fr24-link, .report-error-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            border-radius: 4px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .fr24-link {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            display: block;
+        }
+
+        .fr24-link:hover {
+            background: var(--bg-primary);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .report-error-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid transparent;
+        }
+
+        .report-error-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .report-error-btn.reported {
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+            color: white;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-section {
+            margin-bottom: 16px;
+        }
+
+        .modal-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .modal-sublabel {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .modal-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .modal-current {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-muted);
+            background: var(--bg-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+        }
+
+        .modal-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .modal-btn-cancel {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .modal-btn-cancel:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .modal-btn-submit {
+            background: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            color: white;
+        }
+
+        .modal-btn-submit:hover {
+            background: #2563eb;
+        }
+
+        .modal-atis-preview {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+            padding: 12px;
+            border-radius: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Drawer */
+        .airport-drawer {
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }
+
+        .drawer-content {
+            padding: 20px;
+        }
+
+        .drawer-header {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .atis-reports {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .atis-report {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .report-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .report-meta-item {
+            color: var(--text-secondary);
+        }
+
+        .report-meta-item strong {
+            color: var(--text-primary);
+            margin-left: 6px;
+        }
+
+        .confidence-indicator {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .confidence-high { background: #064e3b; color: #6ee7b7; }
+        .confidence-medium { background: #78350f; color: #fbbf24; }
+        .confidence-low { background: #7f1d1d; color: #fca5a5; }
+
+        .atis-text {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .parsed-runways {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+        }
+
+        .parsed-runways-item {
+            display: flex;
+            gap: 8px;
+        }
+
+        .parsed-runways-label {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .parsed-runways-values {
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+        }
+
+        /* Loading States */
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .airport-header {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            .runway-info {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .meta-info {
+                flex-wrap: wrap;
+            }
+        }
+
+        /* Fade transitions */
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s, max-height 0.3s;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+            max-height: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <!-- Error Report Modal -->
+        <div v-if="showErrorModal" class="modal-overlay" @click.self="closeErrorModal">
+            <div class="modal">
+                <div class="modal-header">
+                    <span class="modal-title">Report Error for {{ errorModalAirport }}</span>
+                    <button class="modal-close" @click="closeErrorModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-section">
+                        <label class="modal-label">Current D-ATIS</label>
+                        <div v-if="errorModalAtisLoading" class="modal-atis-preview" style="text-align: center; padding: 20px;">
+                            <div class="loading-spinner" style="width: 24px; height: 24px; margin: 0 auto 8px;"></div>
+                            Loading...
+                        </div>
+                        <div v-else-if="errorModalAtisText" class="modal-atis-preview">{{ errorModalAtisText }}</div>
+                        <div v-else class="modal-atis-preview" style="color: var(--text-muted); font-style: italic;">No D-ATIS data available</div>
+                    </div>
+
+                    <div class="modal-current">
+                        <strong>Current parsed values:</strong><br>
+                        Arrivals: {{ formatRunways(errorModalCurrentArrivals) }}<br>
+                        Departures: {{ formatRunways(errorModalCurrentDepartures) }}
+                    </div>
+
+                    <div class="modal-section">
+                        <label class="modal-label">
+                            Correct Arrivals <span class="modal-sublabel">(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="modal-input"
+                            v-model="errorModalArrivals"
+                            placeholder="e.g., 28L, 28R"
+                        >
+                        <div class="modal-hint">Enter runway numbers separated by commas, or leave blank</div>
+                    </div>
+
+                    <div class="modal-section">
+                        <label class="modal-label">
+                            Correct Departures <span class="modal-sublabel">(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="modal-input"
+                            v-model="errorModalDepartures"
+                            placeholder="e.g., 28L, 28R"
+                        >
+                        <div class="modal-hint">Enter runway numbers separated by commas, or leave blank</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-btn modal-btn-cancel" @click="closeErrorModal">Cancel</button>
+                    <button class="modal-btn modal-btn-submit" @click="submitErrorReport">Submit Report</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-top">
+                    <div>
+                        <h1>Runways in Use</h1>
+                        <p class="subtitle">Live airport runway configurations from D-ATIS</p>
+                        <div class="warning-banner">
+                            IMPORTANT: This site is experimental. Data is not expected or guaranteed to be accurate.
+                        </div>
+                    </div>
+                    <div class="system-status">
+                        <span class="status-dot"></span>
+                        <span>{{ airports.length }} airports</span>
+                        <span>•</span>
+                        <span>Updated {{ lastUpdate }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <div class="search-box">
+                    <input
+                        type="text"
+                        v-model="searchQuery"
+                        placeholder="Search airports (ICAO code, city, or name)..."
+                        @input="handleSearch"
+                    >
+                </div>
+                <button
+                    class="btn"
+                    :class="{ active: showPinnedOnly }"
+                    @click="togglePinnedFilter"
+                >
+                    {{ showPinnedOnly ? 'Show All' : 'Pinned Only' }}
+                </button>
+            </div>
+
+            <!-- Loading State -->
+            <div v-if="loading" class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading runway data...</p>
+            </div>
+
+            <!-- Pinned Airports -->
+            <div v-if="!loading && pinnedAirports.length > 0 && !showPinnedOnly">
+                <div class="section-header">Pinned Airports</div>
+                <div class="airport-list">
+                    <div
+                        v-for="airport in pinnedAirports"
+                        :key="'pinned-' + airport.airport"
+                        class="airport-card"
+                    >
+                        <div class="airport-header" @click="toggleDrawer(airport.airport)">
+                            <div class="airport-code-container">
+                                <div class="airport-code">{{ airport.airport }}</div>
+                                <div class="airport-location" v-if="airport.city && airport.state">{{ airport.city }}, {{ airport.state }}</div>
+                            </div>
+                            <div class="runway-info">
+                                <div class="runway-group">
+                                    <span class="runway-label">Arrivals</span>
+                                    <span class="runway-values" :class="{ empty: !airport.current_config?.arriving_runways?.length }">
+                                        {{ formatRunways(airport.current_config?.arriving_runways) }}
+                                    </span>
+                                </div>
+                                <div class="runway-group">
+                                    <span class="runway-label">Departures</span>
+                                    <span class="runway-values" :class="{ empty: !airport.current_config?.departing_runways?.length }">
+                                        {{ formatRunways(airport.current_config?.departing_runways) }}
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                class="report-error-btn"
+                                :class="{ reported: reportedErrors[airport.airport] }"
+                                @click.stop="openErrorModal(airport)"
+                                :disabled="reportedErrors[airport.airport]"
+                            >
+                                {{ reportedErrors[airport.airport] ? 'Reported ✓' : 'Report Error' }}
+                            </button>
+                            <div></div>
+                            <div class="meta-info">
+                                <span v-if="airport.current_config?.traffic_flow" :class="'flow-badge flow-' + airport.current_config.traffic_flow">
+                                    {{ airport.current_config.traffic_flow }}
+                                </span>
+                                <span class="last-change">{{ formatTime(airport.current_config?.last_updated) }}</span>
+                            </div>
+                            <a :href="'https://www.flightradar24.com/airport/' + airport.airport.substring(1).toLowerCase()" target="_blank" rel="noopener noreferrer" class="fr24-link" @click.stop>
+                                FlightRadar24
+                            </a>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="pin-btn pinned" @click.stop="togglePin(airport.airport)" title="Unpin this airport">
+                                    ★
+                                </button>
+                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }" title="View D-ATIS history">
+                                    {{ expandedDrawers[airport.airport] ? '⌃' : '⌄' }}
+                                </button>
+                            </div>
+                        </div>
+                        <transition name="fade">
+                            <div v-if="expandedDrawers[airport.airport]" class="airport-drawer">
+                                <div class="drawer-content">
+                                    <div class="drawer-header">Recent ATIS Reports</div>
+                                    <div v-if="loadingReports[airport.airport]" class="loading">
+                                        <div class="loading-spinner"></div>
+                                        <p>Loading reports...</p>
+                                    </div>
+                                    <div v-else-if="reports[airport.airport]" class="atis-reports">
+                                        <div v-for="(report, idx) in reports[airport.airport]" :key="idx" class="atis-report">
+                                            <div class="report-header">
+                                                <div class="report-meta">
+                                                    <span class="report-meta-item">
+                                                        <strong>{{ report.information_letter || 'N/A' }}</strong>
+                                                    </span>
+                                                    <span class="report-meta-item">
+                                                        {{ formatTimestamp(report.timestamp) }}
+                                                    </span>
+                                                </div>
+                                                <span class="confidence-indicator" :class="getConfidenceClass(report.confidence)">
+                                                    {{ Math.round(report.confidence * 100) }}%
+                                                </span>
+                                            </div>
+                                            <div class="atis-text">{{ report.datis_text }}</div>
+                                            <div class="parsed-runways">
+                                                <div class="parsed-runways-item">
+                                                    <span class="parsed-runways-label">ARR:</span>
+                                                    <span class="parsed-runways-values">{{ formatRunways(report.arriving_runways) }}</span>
+                                                </div>
+                                                <div class="parsed-runways-item">
+                                                    <span class="parsed-runways-label">DEP:</span>
+                                                    <span class="parsed-runways-values">{{ formatRunways(report.departing_runways) }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </transition>
+                    </div>
+                </div>
+            </div>
+
+            <!-- All Airports -->
+            <div v-if="!loading">
+                <div class="section-header" v-if="!showPinnedOnly">All Airports</div>
+                <div class="airport-list">
+                    <div
+                        v-for="airport in displayedAirports"
+                        :key="airport.airport"
+                        class="airport-card"
+                    >
+                        <div class="airport-header" @click="toggleDrawer(airport.airport)">
+                            <div class="airport-code-container">
+                                <div class="airport-code">{{ airport.airport }}</div>
+                                <div class="airport-location" v-if="airport.city && airport.state">{{ airport.city }}, {{ airport.state }}</div>
+                            </div>
+                            <div class="runway-info">
+                                <div class="runway-group">
+                                    <span class="runway-label">Arrivals</span>
+                                    <span class="runway-values" :class="{ empty: !airport.current_config?.arriving_runways?.length }">
+                                        {{ formatRunways(airport.current_config?.arriving_runways) }}
+                                    </span>
+                                </div>
+                                <div class="runway-group">
+                                    <span class="runway-label">Departures</span>
+                                    <span class="runway-values" :class="{ empty: !airport.current_config?.departing_runways?.length }">
+                                        {{ formatRunways(airport.current_config?.departing_runways) }}
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                class="report-error-btn"
+                                :class="{ reported: reportedErrors[airport.airport] }"
+                                @click.stop="openErrorModal(airport)"
+                                :disabled="reportedErrors[airport.airport]"
+                            >
+                                {{ reportedErrors[airport.airport] ? 'Reported ✓' : 'Report Error' }}
+                            </button>
+                            <div></div>
+                            <div class="meta-info">
+                                <span v-if="airport.current_config?.traffic_flow" :class="'flow-badge flow-' + airport.current_config.traffic_flow">
+                                    {{ airport.current_config.traffic_flow }}
+                                </span>
+                                <span class="last-change">{{ formatTime(airport.current_config?.last_updated) }}</span>
+                            </div>
+                            <a :href="'https://www.flightradar24.com/airport/' + airport.airport.substring(1).toLowerCase()" target="_blank" rel="noopener noreferrer" class="fr24-link" @click.stop>
+                                FlightRadar24
+                            </a>
+                            <div style="display: flex; gap: 8px;">
+                                <button
+                                    class="pin-btn"
+                                    :class="{ pinned: pinnedAirportCodes.includes(airport.airport) }"
+                                    @click.stop="togglePin(airport.airport)"
+                                    :title="pinnedAirportCodes.includes(airport.airport) ? 'Unpin this airport' : 'Pin this airport'"
+                                >
+                                    {{ pinnedAirportCodes.includes(airport.airport) ? '★' : '☆' }}
+                                </button>
+                                <button class="expand-btn" :class="{ expanded: expandedDrawers[airport.airport] }" title="View D-ATIS history">
+                                    {{ expandedDrawers[airport.airport] ? '⌃' : '⌄' }}
+                                </button>
+                            </div>
+                        </div>
+                        <transition name="fade">
+                            <div v-if="expandedDrawers[airport.airport]" class="airport-drawer">
+                                <div class="drawer-content">
+                                    <div class="drawer-header">Recent ATIS Reports</div>
+                                    <div v-if="loadingReports[airport.airport]" class="loading">
+                                        <div class="loading-spinner"></div>
+                                        <p>Loading reports...</p>
+                                    </div>
+                                    <div v-else-if="reports[airport.airport]" class="atis-reports">
+                                        <div v-for="(report, idx) in reports[airport.airport]" :key="idx" class="atis-report">
+                                            <div class="report-header">
+                                                <div class="report-meta">
+                                                    <span class="report-meta-item">
+                                                        <strong>{{ report.information_letter || 'N/A' }}</strong>
+                                                    </span>
+                                                    <span class="report-meta-item">
+                                                        {{ formatTimestamp(report.timestamp) }}
+                                                    </span>
+                                                </div>
+                                                <span class="confidence-indicator" :class="getConfidenceClass(report.confidence)">
+                                                    {{ Math.round(report.confidence * 100) }}%
+                                                </span>
+                                            </div>
+                                            <div class="atis-text">{{ report.datis_text }}</div>
+                                            <div class="parsed-runways">
+                                                <div class="parsed-runways-item">
+                                                    <span class="parsed-runways-label">ARR:</span>
+                                                    <span class="parsed-runways-values">{{ formatRunways(report.arriving_runways) }}</span>
+                                                </div>
+                                                <div class="parsed-runways-item">
+                                                    <span class="parsed-runways-label">DEP:</span>
+                                                    <span class="parsed-runways-values">{{ formatRunways(report.departing_runways) }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </transition>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div v-if="displayedAirports.length === 0" class="empty-state">
+                    <div class="empty-state-icon">🔍</div>
+                    <p>No airports found matching "{{ searchQuery }}"</p>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <p>&copy; 2024 <a href="https://github.com/L13w">Inertial Navigation LLC</a>. Licensed under <a href="https://polyformproject.org/licenses/noncommercial/1.0.0/" target="_blank">PolyForm Noncommercial 1.0.0</a>.</p>
+                <p style="margin-top: 8px;"><a href="/terms">Terms of Use</a> | <a href="/privacy">Privacy Policy</a></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    airports: [],
+                    reports: {},
+                    expandedDrawers: {},
+                    loadingReports: {},
+                    reportedErrors: {},
+                    pinnedAirportCodes: [],
+                    searchQuery: '',
+                    loading: true,
+                    showPinnedOnly: false,
+                    lastUpdate: 'just now',
+                    refreshInterval: null,
+                    // Error report modal
+                    showErrorModal: false,
+                    errorModalAirport: '',
+                    errorModalCurrentArrivals: [],
+                    errorModalCurrentDepartures: [],
+                    errorModalArrivals: '',
+                    errorModalDepartures: '',
+                    errorModalAtisText: '',
+                    errorModalAtisLoading: false
+                };
+            },
+            computed: {
+                pinnedAirports() {
+                    return this.airports.filter(a => this.pinnedAirportCodes.includes(a.airport));
+                },
+                filteredAirports() {
+                    if (!this.searchQuery) return this.airports;
+                    const query = this.searchQuery.toLowerCase();
+                    return this.airports.filter(a =>
+                        a.airport.toLowerCase().includes(query) ||
+                        a.name.toLowerCase().includes(query)
+                    );
+                },
+                displayedAirports() {
+                    if (this.showPinnedOnly) {
+                        return this.pinnedAirports.filter(a =>
+                            !this.searchQuery ||
+                            a.airport.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                            a.name.toLowerCase().includes(this.searchQuery.toLowerCase())
+                        );
+                    }
+                    return this.filteredAirports.filter(a =>
+                        !this.pinnedAirportCodes.includes(a.airport)
+                    );
+                }
+            },
+            methods: {
+                async loadAirports() {
+                    try {
+                        const response = await fetch('/api/v1/airports');
+                        this.airports = await response.json();
+                        this.airports.sort((a, b) => a.airport.localeCompare(b.airport));
+                        this.updateLastUpdateTime();
+                    } catch (error) {
+                        console.error('Failed to load airports:', error);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                async toggleDrawer(airportCode) {
+                    this.expandedDrawers[airportCode] = !this.expandedDrawers[airportCode];
+
+                    if (this.expandedDrawers[airportCode] && !this.reports[airportCode]) {
+                        this.loadingReports[airportCode] = true;
+                        try {
+                            const response = await fetch(`/api/v1/runway/${airportCode}/reports?limit=4`);
+                            this.reports[airportCode] = await response.json();
+                        } catch (error) {
+                            console.error('Failed to load reports:', error);
+                        } finally {
+                            this.loadingReports[airportCode] = false;
+                        }
+                    }
+                },
+                togglePin(airportCode) {
+                    const index = this.pinnedAirportCodes.indexOf(airportCode);
+                    if (index > -1) {
+                        this.pinnedAirportCodes.splice(index, 1);
+                    } else {
+                        this.pinnedAirportCodes.push(airportCode);
+                    }
+                    this.savePinnedAirports();
+                },
+                togglePinnedFilter() {
+                    this.showPinnedOnly = !this.showPinnedOnly;
+                },
+                async openErrorModal(airport) {
+                    if (this.reportedErrors[airport.airport]) return;
+                    this.errorModalAirport = airport.airport;
+                    this.errorModalCurrentArrivals = airport.current_config?.arriving_runways || [];
+                    this.errorModalCurrentDepartures = airport.current_config?.departing_runways || [];
+                    this.errorModalArrivals = '';
+                    this.errorModalDepartures = '';
+                    this.errorModalAtisText = '';
+                    this.errorModalAtisLoading = true;
+                    this.showErrorModal = true;
+
+                    // Fetch current D-ATIS
+                    try {
+                        const response = await fetch(`/api/v1/runway/${airport.airport}/reports?limit=1`);
+                        const reports = await response.json();
+                        if (reports && reports.length > 0 && reports[0].datis_text) {
+                            this.errorModalAtisText = reports[0].datis_text;
+                        }
+                    } catch (error) {
+                        console.error('Failed to load D-ATIS:', error);
+                    } finally {
+                        this.errorModalAtisLoading = false;
+                    }
+                },
+                closeErrorModal() {
+                    this.showErrorModal = false;
+                    this.errorModalAirport = '';
+                    this.errorModalArrivals = '';
+                    this.errorModalDepartures = '';
+                    this.errorModalAtisText = '';
+                },
+                async submitErrorReport() {
+                    const airportCode = this.errorModalAirport;
+                    if (!airportCode) return;
+
+                    // Parse the user input into arrays
+                    const parseRunways = (input) => {
+                        if (!input || !input.trim()) return null;
+                        return input.split(',')
+                            .map(r => r.trim().toUpperCase())
+                            .filter(r => r.length > 0);
+                    };
+
+                    const correctedArrivals = parseRunways(this.errorModalArrivals);
+                    const correctedDepartures = parseRunways(this.errorModalDepartures);
+
+                    try {
+                        const response = await fetch(`/api/v1/report-error/${airportCode}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                corrected_arrivals: correctedArrivals,
+                                corrected_departures: correctedDepartures
+                            })
+                        });
+
+                        if (response.ok) {
+                            this.reportedErrors[airportCode] = true;
+                            this.closeErrorModal();
+                            // Auto-clear after 3 seconds
+                            setTimeout(() => {
+                                this.reportedErrors[airportCode] = false;
+                            }, 3000);
+                        } else {
+                            console.error('Failed to report error:', await response.text());
+                            alert('Failed to report error. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error reporting:', error);
+                        alert('Failed to report error. Please try again.');
+                    }
+                },
+                handleSearch() {
+                    // Search is handled via computed property
+                },
+                formatRunways(runways) {
+                    if (!runways || runways.length === 0) return 'None';
+                    return runways.join(', ');
+                },
+                formatTime(timestamp) {
+                    if (!timestamp) return 'N/A';
+                    const now = new Date();
+                    const then = new Date(timestamp);
+                    const diffMs = now - then;
+                    const diffMins = Math.floor(diffMs / 60000);
+
+                    if (diffMins < 1) return 'just now';
+                    if (diffMins === 1) return '1 min ago';
+                    if (diffMins < 60) return `${diffMins} mins ago`;
+                    const diffHours = Math.floor(diffMins / 60);
+                    if (diffHours === 1) return '1 hour ago';
+                    if (diffHours < 24) return `${diffHours} hours ago`;
+                    const diffDays = Math.floor(diffHours / 24);
+                    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                },
+                formatTimestamp(timestamp) {
+                    const date = new Date(timestamp);
+                    return date.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    });
+                },
+                getConfidenceClass(confidence) {
+                    if (confidence >= 0.9) return 'confidence-high';
+                    if (confidence >= 0.5) return 'confidence-medium';
+                    return 'confidence-low';
+                },
+                updateLastUpdateTime() {
+                    const now = new Date();
+                    this.lastUpdate = now.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    });
+                },
+                loadPinnedAirports() {
+                    // Load from localStorage
+                    const stored = localStorage.getItem('pinnedAirports');
+                    if (stored) {
+                        try {
+                            this.pinnedAirportCodes = JSON.parse(stored);
+                        } catch (e) {
+                            console.error('Failed to parse pinned airports:', e);
+                        }
+                    }
+
+                    // Load from cookie as backup
+                    const cookieValue = document.cookie
+                        .split('; ')
+                        .find(row => row.startsWith('pinnedAirports='));
+                    if (cookieValue && !stored) {
+                        try {
+                            const decoded = decodeURIComponent(cookieValue.split('=')[1]);
+                            this.pinnedAirportCodes = JSON.parse(decoded);
+                            localStorage.setItem('pinnedAirports', decoded);
+                        } catch (e) {
+                            console.error('Failed to parse cookie:', e);
+                        }
+                    }
+                },
+                savePinnedAirports() {
+                    const json = JSON.stringify(this.pinnedAirportCodes);
+
+                    // Save to localStorage
+                    localStorage.setItem('pinnedAirports', json);
+
+                    // Save to cookie (expires in 1 year)
+                    const expires = new Date();
+                    expires.setFullYear(expires.getFullYear() + 1);
+                    document.cookie = `pinnedAirports=${encodeURIComponent(json)}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+                },
+                async refreshData() {
+                    // Only refresh airport list, don't close drawers or reset expanded reports
+                    const response = await fetch('/api/v1/airports');
+                    const newAirports = await response.json();
+                    newAirports.sort((a, b) => a.airport.localeCompare(b.airport));
+
+                    // Update airports while preserving drawer state
+                    this.airports = newAirports;
+
+                    // Refresh any expanded drawers
+                    for (const airportCode in this.expandedDrawers) {
+                        if (this.expandedDrawers[airportCode]) {
+                            try {
+                                const response = await fetch(`/api/v1/runway/${airportCode}/reports?limit=4`);
+                                this.reports[airportCode] = await response.json();
+                            } catch (error) {
+                                console.error('Failed to refresh reports:', error);
+                            }
+                        }
+                    }
+
+                    this.updateLastUpdateTime();
+                }
+            },
+            mounted() {
+                this.loadPinnedAirports();
+                this.loadAirports();
+
+                // Auto-refresh every 30 seconds
+                this.refreshInterval = setInterval(() => {
+                    this.refreshData();
+                }, 30000);
+            },
+            beforeUnmount() {
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
